@@ -1,5 +1,81 @@
 # Decisões de arquitetura e operação
 
+## Visão geral e responsabilidades
+
+```mermaid
+flowchart LR
+    C[Serviço consumidor] -->|HTTP + chave de acesso| A[API ASP.NET Core]
+    A --> V[Validação da requisição]
+    V --> S[Store: transação e SQL]
+    S --> D[(PostgreSQL)]
+    D --- CT[accounts: saldo atual]
+    D --- M[movements: diário]
+```
+
+O consumidor conhece a intenção de negócio e fornece sua chave idempotente. A API transforma HTTP em chamadas da aplicação e traduz erros em respostas. O `Store` coordena persistência e regras que dependem do estado da conta. O PostgreSQL arbitra a concorrência entre processos: um bloqueio apenas em memória não protegeria duas réplicas da API.
+
+| Componente | Por que existe | Limite da responsabilidade |
+| --- | --- | --- |
+| `Program.cs` | Configurar dependências, autenticação, endpoints e respostas de erro | Não faz cálculo de saldo ou SQL de movimentação; a chave compartilhada não autoriza por conta |
+| `Domain.cs` | Definir contratos, validação monetária e erro de negócio | Ainda não há entidade de cliente, transferência ou regras contábeis completas |
+| `Store.cs` | Manter bloqueio, verificação e gravação na mesma transação | Reúne regras dependentes de saldo e SQL; separar quando houver complexidade que justifique |
+| `schema.sql` | Formalizar precisão, relações, unicidade e índice de histórico | Bootstrap inicial, não ferramenta de migração nem proteção contra administrador |
+| `LedgerTests.cs` | Verificar invariantes e concorrência usando o banco real | Testa `Store` e validação diretamente; não cobre automaticamente o pipeline HTTP |
+| `compose.yaml` e `Dockerfile` | Tornar ambiente e empacotamento reproduzíveis | Configuração de desenvolvimento; não representa infraestrutura de alta disponibilidade |
+| `ci.yml` e `Directory.Build.props` | Repetir build/testes e impedir aprovação com warnings | Não mede carga, segurança operacional ou recuperação |
+
+## Modelo de dados: por que guardar diário e saldo
+
+`movements` responde “quais registros compõem esta posição?”. Cada linha guarda identificador, conta, chave, valor, direção e horário. O valor é sempre positivo; a direção define o sinal. A chave estrangeira impede movimento sem conta e a restrição única impede repetir a chave na mesma conta.
+
+`accounts` responde “qual é o saldo agora?”. Seu campo `balance` é uma projeção síncrona do diário, mantida na mesma transação. Essa duplicação reduz o custo da leitura atual, mas cria uma obrigação: nenhum caminho de escrita pode atualizar apenas um dos lados. A consulta histórica usa o diário, porque uma única coluna de saldo não preservaria a evolução da conta.
+
+O índice `(account_id, recorded_at)` aproxima o acesso do filtro histórico e inclui valor/tipo, mas não torna a soma constante: uma conta com muitos registros ainda exige ler muitos itens. O índice também custa espaço e manutenção em cada escrita. A precisão do saldo (`numeric(20,2)`) é maior que a de cada movimento (`numeric(18,2)`) para permitir acumulação, com limite explícito na aplicação.
+
+## Exemplo de concorrência e repetição
+
+Imagine saldo de R$ 100 e dois débitos simultâneos de R$ 80. Sem coordenação, ambos poderiam ler 100 e ser aprovados. Com o bloqueio da linha, o primeiro confirma saldo 20; o segundo só então lê 20 e é recusado. Essa espera é deliberada: protege a regra de saldo, ao custo de limitar a vazão de uma única conta.
+
+Se a resposta do primeiro débito se perder, uma repetição com a mesma chave recupera o movimento original. A verificação da chave ocorre antes da nova avaliação de saldo: a repetição não deve ser recusada só porque a operação original já gastou o dinheiro.
+
+```mermaid
+sequenceDiagram
+    participant C as Consumidor
+    participant A as API / Store
+    participant B as PostgreSQL
+    C->>A: Crédito ou débito com chave
+    A->>A: Validar entrada
+    A->>B: BEGIN e bloquear conta
+    A->>B: Buscar chave existente
+    alt Chave já confirmada e conteúdo igual
+        B-->>A: Movimento original
+        A-->>C: 200 com mesmo movimento
+    else Nova chave e regra de saldo atendida
+        A->>B: Inserir movimento e atualizar saldo
+        A->>B: COMMIT
+        A-->>C: 201 com movimento criado
+    else Conta ausente, conflito ou saldo insuficiente
+        A->>B: Encerrar transação sem gravar
+        A-->>C: 404 ou 409
+    end
+```
+
+No retorno de uma duplicata, o descarte da transação encerra a leitura e libera o bloqueio; não existe nova escrita a confirmar. Uma falha durante a nova gravação antes do commit não deixa um lançamento parcialmente aplicado. Uma falha de comunicação durante o commit deixa o resultado incerto para o consumidor, resolvido pela repetição idempotente.
+
+## Alternativas e custos assumidos
+
+| Escolha atual | Alternativa considerada | Motivo e custo assumido |
+| --- | --- | --- |
+| Aplicação única | Microserviços por responsabilidade | Menos saltos e falhas distribuídas; deploy e escala continuam acoplados |
+| Bloqueio pessimista por conta | Versão otimista com retries | Fluxo simples para saldo disputado; pode haver espera e timeout em conta concentradora |
+| Saldo atual materializado na transação | Somar diário em toda leitura | Leitura atual barata; exige manter e reconciliar duas representações |
+| Histórico síncrono no primário | Réplica/cache/projeção assíncrona | Evita apresentar atraso como posição atual; aumenta carga no primário |
+| Diário simples com projeção | Event sourcing completo | Preserva registros sem infraestrutura de replay e versionamento de eventos; não oferece todas as garantias de auditoria de uma plataforma contábil |
+| SQL explícito com Npgsql | ORM | Deixa bloqueio e transação visíveis; requer manter SQL e mapeamento manualmente |
+| Arquivos com funções definidas | Vários projetos e interfaces por camada | Menos indireção nesta escala; evoluir a separação quando regras e integrações crescerem |
+
+Essas escolhas não provam superioridade em qualquer cenário. O enunciado não informa volume, distribuição por conta, latência esperada ou orçamento; por isso a proposta explica mecanismos e gargalos, sem declarar capacidade numérica.
+
 ## Uma aplicação e um banco relacional
 
 ASP.NET Core mantém a superfície pequena e usa I/O assíncrono. PostgreSQL é a fonte de verdade. Uma transação engloba o diário e o saldo materializado, evitando atualização dupla entre serviços. Microserviços, mensageria e cache de saldo foram adiados: aumentariam a superfície de falhas sem requisito que justifique consistência eventual. .NET 10 é LTS. O acesso explícito via Npgsql torna o SQL e o escopo transacional revisáveis.
@@ -43,3 +119,14 @@ Antes de produção: TLS entre cliente/gateway/API/banco, autenticação OIDC/mT
 - Implementar partidas dobradas e contas contábeis caso o sistema assuma papel de razão contábil; esta API registra movimentos de clientes, não substitui contabilidade completa.
 
 Não há benchmark ou evidência de capacidade para tráfego de produção nesta entrega. Os testes atuais verificam invariantes com PostgreSQL real; failover, restauração e carga precisam de ambiente próprio.
+
+## Limitações observáveis nesta versão
+
+- O readiness usa `COUNT(*)` sobre contas: confirma acesso à tabela, mas seu custo cresce e não verifica permissões de escrita ou todas as estruturas. Uma consulta leve e checks de schema separados são uma evolução indicada.
+- Nem os testes nem a configuração atual fornecem autenticação individual, autorização por conta, trilha de auditoria de acesso ou política de rotação.
+- Constraints reforçam regras locais, mas não provam por si só que o saldo materializado equivale à soma do diário se houver escrita externa com privilégios.
+- As exceções Npgsql recebem 503 de modo amplo, inclusive possíveis erros SQL permanentes. Classificação por tipo/SQLSTATE é necessária para orientar retries com maior precisão.
+- O contrato pede datas com offset, mas a entrada usa o binding padrão do ASP.NET Core; validação explícita do formato ainda deve ser acrescentada.
+- Não há endpoint de extrato, reconciliação automática, vínculo de estorno, transferência atômica entre contas ou razão de partidas dobradas.
+
+Esses itens são trabalho pendente, não funcionalidades implícitas da documentação. A [matriz de requisitos](requirements.md) relaciona a cobertura existente ao desafio e prioriza as próximas verificações.

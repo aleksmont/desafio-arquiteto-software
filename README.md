@@ -2,9 +2,27 @@
 
 API em C#/.NET 10 e PostgreSQL para registrar créditos e débitos e consultar saldo atual ou histórico. Implementação inicial de uma única aplicação, com diário financeiro e saldo materializado atualizados na mesma transação.
 
+## Entenda a solução
+
+O problema central é preservar a relação entre o que aconteceu na conta e o saldo apresentado ao cliente, inclusive quando duas requisições chegam juntas ou uma resposta se perde. A implementação prioriza esse núcleo antes de adicionar serviços ou infraestrutura distribuída.
+
+O **diário de movimentações** (`movements`) guarda cada crédito e débito. O **saldo atual** (`accounts.balance`) evita somar todo o histórico a cada consulta. Ambos são gravados na mesma transação: ou os dois mudam, ou nenhum muda. Uma chave enviada pelo consumidor identifica cada operação e permite repeti-la com segurança.
+
+Exemplo: após um crédito de R$ 100,50 e um débito de R$ 30,25, o saldo atual é R$ 70,25. A consulta histórica entre os dois registros retorna R$ 100,50. Se a resposta do crédito se perder e o consumidor repetir sua chave, o saldo continua correto porque o crédito original é recuperado.
+
+### Guia de leitura
+
+| Documento | O que explica |
+| --- | --- |
+| [Requisitos e evidências](docs/requirements.md) | O que o enunciado pede, onde foi atendido e o que ainda precisa ser validado |
+| [Arquitetura e decisões](docs/architecture.md) | Responsabilidade de cada componente, fluxo de uma operação e motivos das escolhas |
+| [Contrato da API](docs/api.md) | Endpoints, exemplos de resposta e comportamento de repetição e erro |
+
+Esta entrega usa uma aplicação com responsabilidades separadas em arquivos, sem impor várias camadas ou projetos a um domínio ainda pequeno. `Store` concentra a transação e o SQL; essa escolha reduz indireção, mas pode exigir separação de regras e persistência quando o domínio crescer.
+
 ## Premissas
 
-- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos.
+- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos. A API recebe o identificador da conta; não há cadastro de clientes nem vínculo de titularidade persistido.
 - Sem cheque especial: débitos que excedam o saldo retornam 409.
 - O histórico representa o instante de registro (`recordedAt`, UTC), inclusive no limite `at`. Não há lançamentos retroativos ou futuros. A posição considera os registros já confirmados visíveis na consulta; não é uma reconstrução do instante exato de commit.
 - Contas novas começam em zero. Conta inexistente retorna 404.
