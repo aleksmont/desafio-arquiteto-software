@@ -1,48 +1,58 @@
-using System.Security.Cryptography;
-using System.Text;
 using Ledger.Api;
+using Microsoft.AspNetCore.RateLimiting;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 var connection = builder.Configuration.GetConnectionString("Ledger") ?? throw new InvalidOperationException("Configure ConnectionStrings__Ledger.");
 var apiKey = builder.Configuration["ApiKey"] ?? throw new InvalidOperationException("Configure ApiKey com pelo menos 32 caracteres.");
 if (apiKey.Length < 32) throw new InvalidOperationException("ApiKey deve ter pelo menos 32 caracteres.");
-builder.Services.AddSingleton(NpgsqlDataSource.Create(connection));
+var maxRequests = builder.Configuration.GetValue("MaxConcurrentRequests", 32);
+if (maxRequests < 1) throw new InvalidOperationException("MaxConcurrentRequests deve ser positivo.");
+var connectionBuilder = new NpgsqlConnectionStringBuilder(connection);
+// Limites padrão também valem quando o consumidor não os informou na configuração.
+if (!connectionBuilder.ContainsKey("Timeout")) connectionBuilder.Timeout = 5;
+if (!connectionBuilder.ContainsKey("Command Timeout")) connectionBuilder.CommandTimeout = 10;
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionBuilder.ConnectionString));
 builder.Services.AddSingleton<Store>();
 builder.Services.AddProblemDetails();
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddConcurrencyLimiter("database", limiter =>
+    {
+        limiter.PermitLimit = maxRequests;
+        limiter.QueueLimit = 0;
+    });
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "1";
+        await Results.Problem(statusCode: 429, title: "Capacidade simultânea atingida. Tente novamente com a mesma chave.")
+            .ExecuteAsync(context.HttpContext);
+    };
+});
 var app = builder.Build();
 app.UseExceptionHandler();
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path == "/health/live") { await next(context); return; }
-    var supplied = context.Request.Headers["X-Api-Key"].ToString();
-    if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(supplied)), SHA256.HashData(Encoding.UTF8.GetBytes(apiKey))))
-    { context.Response.StatusCode = 401; return; }
-    try { await next(context); }
-    catch (LedgerException ex) { await Results.Problem(statusCode: ex.Status, title: ex.Message).ExecuteAsync(context); }
-    catch (NpgsqlException ex)
-    {
-        app.Logger.LogWarning("Falha de persistência: {ErrorType}", ex.GetType().Name);
-        await Results.Problem(statusCode: 503, title: "Persistência indisponível. Repita com a mesma chave.").ExecuteAsync(context);
-    }
-});
+app.UseMiddleware<ApiMiddleware>();
+app.UseRateLimiter();
 app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
 app.MapGet("/health/ready", async (NpgsqlDataSource source, CancellationToken ct) =>
 {
-    await using var cmd = source.CreateCommand("SELECT COUNT(*) FROM accounts");
+    await using var cmd = source.CreateCommand("SELECT id FROM accounts LIMIT 1");
     await cmd.ExecuteScalarAsync(ct);
     return Results.Ok(new { status = "ready" });
 });
-app.MapPut("/accounts/{id:guid}", async (Guid id, Store store, CancellationToken ct) =>
+var accounts = app.MapGroup("/accounts").RequireRateLimiting("database");
+accounts.MapPut("/{id:guid}", async (Guid id, Store store, CancellationToken ct) =>
 {
     await store.CreateAccount(id, ct);
     return Results.NoContent();
 });
-app.MapPost("/accounts/{id:guid}/movements", async (Guid id, MovementRequest request, Store store, CancellationToken ct) =>
+accounts.MapPost("/{id:guid}/movements", async (Guid id, MovementRequest request, Store store, CancellationToken ct) =>
 {
     var result = await store.Record(id, request, ct);
     return Results.Json(result.Value, statusCode: result.Created ? 201 : 200);
 });
-app.MapGet("/accounts/{id:guid}/balance", async (Guid id, DateTimeOffset? at, Store store, CancellationToken ct) =>
-    Results.Ok(await store.GetBalance(id, at, ct)));
+accounts.MapGet("/{id:guid}/balance", async (Guid id, string? at, Store store, CancellationToken ct) =>
+    Results.Ok(await store.GetBalance(id, HistoryInstant.Parse(at), ct)));
 app.Run();
+
+public partial class Program;

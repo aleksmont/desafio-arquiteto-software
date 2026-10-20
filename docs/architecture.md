@@ -16,11 +16,12 @@ O consumidor conhece a intenção de negócio e fornece sua chave idempotente. A
 
 | Componente | Por que existe | Limite da responsabilidade |
 | --- | --- | --- |
-| `Program.cs` | Configurar dependências, autenticação, endpoints e respostas de erro | Não faz cálculo de saldo ou SQL de movimentação; a chave compartilhada não autoriza por conta |
+| `Program.cs` | Configurar dependências, limite de concorrência e endpoints | Não faz cálculo de saldo ou SQL de movimentação; a chave compartilhada não autoriza por conta |
+| `ApiMiddleware.cs` e `HistoryInstant.cs` | Centralizar autenticação, falhas de persistência e validação explícita do instante histórico | Chave de serviço ainda não distingue titulares |
 | `Domain.cs` | Definir contratos, validação monetária e erro de negócio | Ainda não há entidade de cliente, transferência ou regras contábeis completas |
 | `Store.cs` | Manter bloqueio, verificação e gravação na mesma transação | Reúne regras dependentes de saldo e SQL; separar quando houver complexidade que justifique |
 | `schema.sql` | Formalizar precisão, relações, unicidade e índice de histórico | Bootstrap inicial, não ferramenta de migração nem proteção contra administrador |
-| `LedgerTests.cs` | Verificar invariantes e concorrência usando o banco real | Testa `Store` e validação diretamente; não cobre automaticamente o pipeline HTTP |
+| Suíte `Ledger.Tests` | Verificar invariantes, HTTP, falhas e concorrência usando o banco real | Não simula failover, desastre ou rede interrompida durante commit |
 | `compose.yaml` e `Dockerfile` | Tornar ambiente e empacotamento reproduzíveis | Configuração de desenvolvimento; não representa infraestrutura de alta disponibilidade |
 | `ci.yml` e `Directory.Build.props` | Repetir build/testes e impedir aprovação com warnings | Não mede carga, segurança operacional ou recuperação |
 
@@ -98,7 +99,7 @@ Se a confirmação ocorreu e a resposta se perdeu, a mesma chave recupera o resu
 
 ## Falhas e alta demanda
 
-Em indisponibilidade do banco, retornar 503 sem aceitar lançamentos apenas em memória. A disponibilidade de escrita depende do primário: prioriza-se consistência financeira. O pool limita conexões, mas não substitui controle de admissão. Configurar timeouts, limites de requisição e rate limiting no gateway antes de produção. Escalar réplicas stateless da API; a conta muito concorrida continua sendo um ponto serial por definição da regra de saldo.
+Em indisponibilidade do banco, retornar 503 sem aceitar lançamentos apenas em memória. A disponibilidade de escrita depende do primário: prioriza-se consistência financeira. O pool limita conexões, mas não substitui controle de admissão. A API limita a concorrência de contas por instância (32 por padrão, sem fila) e retorna 429 ao exceder. A espera de lock em movimentações é limitada a 3 segundos. Antes de produção, ajustar esses valores com medições e complementar com limites de requisição e rate limiting no gateway. Escalar réplicas stateless da API; a conta muito concorrida continua sendo um ponto serial por definição da regra de saldo.
 
 Consultas históricas crescem com o diário. Medir volume e latência antes de introduzir snapshots, particionamento ou projeções. Projeções assíncronas devem expor seu ponto de atualização; não responder como se fossem saldo autoritativo. Se houver eventos, usar outbox transacional e consumidores idempotentes.
 
@@ -106,7 +107,7 @@ Consultas históricas crescem com o diário. Medir volume e latência antes de i
 
 A API exige chave de serviço e falha ao iniciar sem configuração. A comparação usa hashes de tamanho fixo em tempo constante. Não há logs de corpo, credencial ou dados financeiros. SQL parametrizado evita interpolação de entrada. O exemplo mantém portas do host em loopback e executa a API como usuário sem privilégios no contêiner.
 
-Antes de produção: TLS entre cliente/gateway/API/banco, autenticação OIDC/mTLS por serviço, autorização por conta/escopo, rotação de segredos via cofre, criptografia de discos/backups, auditoria com acesso restrito, política de retenção/LGPD e gestão de incidentes. UUID não é autorização. O usuário PostgreSQL do Compose é de desenvolvimento; criar papel de runtime sem DDL e sem UPDATE/DELETE no diário, e papel separado para migrações. O diário atual é imutável pela API, não protegido contra um administrador do banco.
+Antes de produção: TLS entre cliente/gateway/API/banco, autenticação OIDC/mTLS por serviço, autorização por conta/escopo, rotação de segredos via cofre, criptografia de discos/backups, auditoria com acesso restrito, política de retenção/LGPD e gestão de incidentes. UUID não é autorização. O usuário PostgreSQL do Compose é de desenvolvimento; criar papel de runtime sem DDL e sem UPDATE/DELETE no diário, e papel separado para migrações. O diário é protegido pela API e pelo trigger da migração 002 contra UPDATE, DELETE e TRUNCATE. Um administrador pode remover o trigger; papéis restritos continuam necessários.
 
 ## Operação e próximos passos
 
@@ -122,11 +123,12 @@ Não há benchmark ou evidência de capacidade para tráfego de produção nesta
 
 ## Limitações observáveis nesta versão
 
-- O readiness usa `COUNT(*)` sobre contas: confirma acesso à tabela, mas seu custo cresce e não verifica permissões de escrita ou todas as estruturas. Uma consulta leve e checks de schema separados são uma evolução indicada.
-- Nem os testes nem a configuração atual fornecem autenticação individual, autorização por conta, trilha de auditoria de acesso ou política de rotação.
-- Constraints reforçam regras locais, mas não provam por si só que o saldo materializado equivale à soma do diário se houver escrita externa com privilégios.
-- As exceções Npgsql recebem 503 de modo amplo, inclusive possíveis erros SQL permanentes. Classificação por tipo/SQLSTATE é necessária para orientar retries com maior precisão.
-- O contrato pede datas com offset, mas a entrada usa o binding padrão do ASP.NET Core; validação explícita do formato ainda deve ser acrescentada.
+- O readiness faz uma leitura limitada da tabela de contas; não prova permissões de escrita, existência do trigger ou todas as estruturas.
+- A chave compartilhada não fornece autenticação individual, autorização por conta, trilha de auditoria de acesso ou rotação automática.
+- O trigger protege o diário de mutações acidentais, mas não impede um administrador de removê-lo nem impede escrita externa divergente no saldo.
+- A migração 002 é SQL transacional reaplicável; ainda não há executor com histórico de versões e checksums. Deve ser aplicada explicitamente a volumes existentes.
+- O limite de concorrência é por processo e não constitui quota distribuída. Health checks estão fora dele; precisam de proteção de rede no ambiente real.
 - Não há endpoint de extrato, reconciliação automática, vínculo de estorno, transferência atômica entre contas ou razão de partidas dobradas.
+- Os testes de falha não simulam perda de conexão durante o commit, failover ou restauração de backup.
 
-Esses itens são trabalho pendente, não funcionalidades implícitas da documentação. A [matriz de requisitos](requirements.md) relaciona a cobertura existente ao desafio e prioriza as próximas verificações.
+A [revisão da solução](improvements.md) detalha as melhorias implementadas e suas evidências. A [matriz de requisitos](requirements.md) relaciona a cobertura ao desafio.

@@ -1,3 +1,4 @@
+using System.Data;
 using Npgsql;
 namespace Ledger.Api;
 
@@ -15,7 +16,9 @@ public sealed class Store(NpgsqlDataSource source)
     {
         request.Validate();
         await using var conn = await source.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        await using var limits = new NpgsqlCommand("SET LOCAL lock_timeout = '3s'", conn, tx);
+        await limits.ExecuteNonQueryAsync(ct);
         // Serializa apenas movimentações da mesma conta; contas diferentes progridem em paralelo.
         await using var locked = new NpgsqlCommand("SELECT balance FROM accounts WHERE id=$1 FOR UPDATE", conn, tx);
         locked.Parameters.AddWithValue(account);
@@ -38,7 +41,7 @@ public sealed class Store(NpgsqlDataSource source)
         if (next < 0) throw new LedgerException(409, "Saldo insuficiente.");
         if (next > 999999999999999999.99m) throw new LedgerException(409, "Limite de saldo excedido.");
         var id = Guid.NewGuid();
-        await using var insert = new NpgsqlCommand("INSERT INTO movements VALUES ($1,$2,$3,$4,$5,clock_timestamp()) RETURNING recorded_at", conn, tx);
+        await using var insert = new NpgsqlCommand("INSERT INTO movements(id, account_id, idempotency_key, amount, type, recorded_at) VALUES ($1,$2,$3,$4,$5,clock_timestamp()) RETURNING recorded_at", conn, tx);
         insert.Parameters.AddWithValue(id);
         insert.Parameters.AddWithValue(account);
         insert.Parameters.AddWithValue(request.Key);

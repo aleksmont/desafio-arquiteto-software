@@ -16,7 +16,7 @@ O documento exige C#, testes automatizados, repositório público, README para e
 | Tratar repetição após falha | Chave idempotente por conta, com comparação de valor e tipo | `ConcurrentDuplicatesOnlyApplyOnce` e `DifferentPayloadWithSameKeyConflicts`; queda de rede durante commit ainda não foi simulada |
 | Impedir débito acima do saldo | Validação após bloqueio e constraint de saldo não negativo | `InsufficientFundsDoesNotReserveKey`; ausência de cheque especial é premissa adotada |
 | Proteger acesso e entrada | Chave de serviço, SQL parametrizado e validação monetária | Testes de validação; autorização por titular/conta ainda não implementada |
-| Comportar-se diante de falha parcial | Falhas Npgsql retornam 503; a API não confirma escrita apenas em memória | Comportamento previsto em código; failover e indisponibilidade não têm teste automatizado nesta versão |
+| Comportar-se diante de falha parcial | Falhas transitórias retornam 503, permanentes retornam 500; sem confirmação de escrita apenas em memória | HTTP testa indisponibilidade do banco e timeout de lock; failover não é simulado |
 
 Os caminhos da tabela são relativos à raiz do repositório. Os testes ficam em `tests/Ledger.Tests/LedgerTests.cs`.
 
@@ -42,15 +42,15 @@ Os caminhos da tabela são relativos à raiz do repositório. Os testes ficam em
 
 ## O que os testes demonstram
 
-A suíte inicial contém 11 casos executados: quatro combinações inválidas de valor/tipo, uma chave vazia e seis cenários de integração. Os cenários de concorrência disparam 20 solicitações ao `Store`, usando conexões reais ao PostgreSQL. Isso exercita o bloqueio e a restrição única do banco, que um repositório simulado não reproduziria.
+A suíte ampliada contém 25 casos: regras monetárias, histórico, idempotência, débitos concorrentes, validação de datas, contrato HTTP, autenticação, capacidade simultânea, timeout de lock, indisponibilidade do banco, erro SQL permanente, proteção do diário e rollback após falha entre INSERT e UPDATE. O build trata warnings como erros.
 
-A compilação inicial passou sem erros e warnings e os 11 casos passaram. Também houve verificação manual do fluxo HTTP. Isso é evidência daquela execução, não garantia de que alterações futuras passarão. O workflow configura a repetição dos checks a cada push/PR; sua existência não prova que uma execução remota específica passou.
+Os testes HTTP usam WebApplicationFactory e o pipeline real da aplicação, com PostgreSQL real para os cenários de persistência. Os testes de falha injetam condições controladas, incluindo bloqueio por outra transação e constraint que impede a atualização de saldo após a inserção do diário. Os testes de proteção SQL exigem a migração 002 aplicada.
 
-Ainda faltam testes automatizados de contrato HTTP, autenticação, cancelamento e falha de persistência. Os testes atuais não interrompem o processo entre INSERT e UPDATE, não derrubam o banco durante commit e não medem latência, throughput ou recuperação após desastre. Docker foi configurado, mas não foi executado na validação inicial.
+Ainda faltam simulações de rede durante commit, cancelamento pelo consumidor, failover, recuperação de backup e ensaio de carga. A existência do workflow não comprova uma execução remota específica: conferir o resultado do GitHub Actions. Há um job separado de contêineres que executa o smoke test; Docker não está disponível no ambiente local usado nesta revisão.
 
 ## Evolução priorizada
 
-1. **Reproduzir a entrega:** validar build e inicialização pelo Compose e acrescentar testes HTTP para autenticação, erros e contrato. Critério: ambiente vazio inicia e o fluxo completo passa automaticamente.
+1. **Reproduzir a entrega:** acompanhar o job de contêineres no CI e ampliar os testes HTTP já implementados, incluindo cancelamento. Critério: ambiente vazio inicia e o fluxo completo passa automaticamente.
 2. **Endurecer acesso e persistência:** identidade por serviço, autorização por conta, papel SQL restrito e migrações versionadas. Critério: consumidor sem permissão não movimenta a conta e runtime não altera o schema ou remove o diário.
 3. **Validar recuperação:** simular resposta perdida, queda do banco e commit ambíguo; ensaiar backup e restauração. Critério: nenhuma duplicata após repetição e saldo reconciliado com o diário.
 4. **Medir e controlar demanda:** estabelecer metas com negócio, medir contas distribuídas e conta concentradora, adicionar métricas e controle de admissão. Critério: limites e degradação conhecidos, sem promessas de capacidade sem medição.

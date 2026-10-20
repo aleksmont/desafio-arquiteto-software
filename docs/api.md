@@ -53,7 +53,7 @@ Após timeout, o consumidor não sabe se houve commit. Deve repetir a mesma inte
 }
 ```
 
-Sem `at`, a resposta usa o saldo materializado atual. Com `at`, o campo devolve o instante solicitado e o valor soma créditos menos débitos com `recorded_at <= at`. Use ISO 8601 com `Z` ou offset; em URLs, codifique `+` como `%2B`. O contrato pede offset explícito, mas a versão atual não tem validador próprio que rejeite toda entrada sem offset: não dependa da interpretação implícita do servidor.
+Sem `at`, a resposta usa o saldo materializado atual. Com `at`, o campo devolve o instante solicitado e o valor soma créditos menos débitos com `recorded_at <= at`. Use ISO 8601 com `Z` ou offset; em URLs, codifique `+` como `%2B`. Entradas sem offset, vazias ou fora do formato são rejeitadas com 400; o instante é normalizado para UTC.
 
 Uma data futura inclui apenas movimentos já confirmados e visíveis na consulta; não prevê saldo futuro. O banco usa a fotografia da instrução SQL. Como `recordedAt` é anterior ao commit, uma movimentação ainda em andamento pode aparecer em consultas posteriores para o mesmo `at`, depois de confirmada. Isso impede interpretar a resposta como auditoria exata do que estava visível naquele instante.
 
@@ -62,9 +62,11 @@ Uma data futura inclui apenas movimentos já confirmados e visíveis na consulta
 | Código | Situação | Ação do consumidor |
 | --- | --- | --- |
 | 400 | Valor, tipo ou chave inválidos; falha de vinculação de parâmetros | Corrigir requisição |
-| 401 | Chave de acesso ausente ou inválida | Corrigir credencial; a resposta atual não tem corpo |
+| 401 | Chave de acesso ausente ou inválida | Corrigir credencial; resposta em Problem Details |
 | 404 | Conta não encontrada, ou rota inexistente | Conferir identificador e rota |
 | 409 | Saldo insuficiente, chave conflitante ou limite de saldo excedido | Tratar conflito de negócio; não repetir cegamente |
-| 503 | Exceção de persistência capturada como `NpgsqlException` | Repetir a mesma chave com política limitada; investigar se persistir |
+| 429 | Limite de operações simultâneas atingido | Respeitar Retry-After e repetir a mesma chave |
+| 503 | Falha transitória, timeout ou espera de lock excedida | Respeitar Retry-After e repetir a mesma chave com política limitada |
+| 500 | Erro SQL permanente | Investigar configuração/schema; não repetir automaticamente |
 
-Erros de negócio usam Problem Details, com `status` e `title`. Outros erros passam pelo tratamento global; nem todo timeout/cancelamento é necessariamente uma `NpgsqlException`. A implementação ainda não separa falhas transitórias de erros SQL permanentes no mapeamento 503.
+Erros de negócio usam Problem Details, com `status` e `title`. Erros de autenticação e persistência também usam Problem Details com `traceId`, sem detalhes SQL. A classificação usa `NpgsqlException.IsTransient`, timeouts e SQLSTATEs de lock/cancelamento. Cancelamento pelo cliente é tratado separadamente (499 interno, sem tentar escrever corpo em conexão encerrada). Outros erros passam pelo tratamento global.

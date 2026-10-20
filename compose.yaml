@@ -9,6 +9,7 @@ services:
     volumes:
       - ledger-data:/var/lib/postgresql
       - ./src/Ledger.Api/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./database/migrations/002-protect-journal.sql:/docker-entrypoint-initdb.d/002-protect-journal.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
       interval: 3s
