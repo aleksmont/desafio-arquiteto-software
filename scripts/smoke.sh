@@ -15,4 +15,8 @@ for expected in 201 200; do
   [ "$actual" = "$expected" ] || { echo "HTTP esperado $expected, recebido $actual" >&2; exit 1; }
 done
 curl -fsS "$base/accounts/$account/balance" -H "X-Api-Key: $API_KEY" | python3 -c 'import json,sys; from decimal import Decimal; assert json.load(sys.stdin, parse_float=Decimal)["amount"] == Decimal("10.25")'
-echo 'Smoke test passou: criação, crédito, repetição e saldo.'
+# Exercita o limite do servidor HTTP real (não aplicado pelo TestServer em memória).
+large="$(python3 -c 'import json; print(json.dumps({"key":"x" * 20000,"amount":1,"type":"credit"}))')"
+actual="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/accounts/$account/movements" -H "X-Api-Key: $API_KEY" -H 'Content-Type: application/json' -d "$large")"
+[ "$actual" = 413 ] || { echo "Corpo excedente: HTTP esperado 413, recebido $actual" >&2; exit 1; }
+echo 'Smoke test passou: criação, crédito, repetição, saldo e limite de corpo.'

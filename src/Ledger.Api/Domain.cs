@@ -1,6 +1,9 @@
 namespace Ledger.Api;
 
-public sealed record MovementRequest(string Key, decimal Amount, string Type)
+public sealed record MovementRequest(
+    [property: System.Text.Json.Serialization.JsonRequired] string Key,
+    [property: System.Text.Json.Serialization.JsonRequired] decimal Amount,
+    [property: System.Text.Json.Serialization.JsonRequired] string Type)
 {
     public void Validate()
     {

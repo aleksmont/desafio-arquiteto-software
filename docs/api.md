@@ -21,6 +21,8 @@ Base local: `http://localhost:8080`. Exceto `/health/live`, os endpoints exigem 
 {"key":"deposit-001","amount":100.50,"type":"credit"}
 ```
 
+Os três campos são obrigatórios; campos desconhecidos são rejeitados com 400. Corpos acima de 16 KiB são rejeitados pelo Kestrel com 413.
+
 - `key`: de 1 a 100 caracteres, não pode conter apenas espaços. A comparação é exata; não há remoção de espaços ou normalização de caixa. Não use dados pessoais.
 - `amount`: maior que zero, até `9999999999999999.99`, com precisão de centavos.
 - `type`: exatamente `credit` ou `debit`.
@@ -62,6 +64,7 @@ Uma data futura inclui apenas movimentos já confirmados e visíveis na consulta
 | Código | Situação | Ação do consumidor |
 | --- | --- | --- |
 | 400 | Valor, tipo ou chave inválidos; falha de vinculação de parâmetros | Corrigir requisição |
+| 413 | Corpo excede 16 KiB no servidor HTTP | Reduzir requisição |
 | 401 | Chave de acesso ausente ou inválida | Corrigir credencial; resposta em Problem Details |
 | 404 | Conta não encontrada, ou rota inexistente | Conferir identificador e rota |
 | 409 | Saldo insuficiente, chave conflitante ou limite de saldo excedido | Tratar conflito de negócio; não repetir cegamente |

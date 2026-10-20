@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.RateLimiting;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow);
 var connection = builder.Configuration.GetConnectionString("Ledger") ?? throw new InvalidOperationException("Configure ConnectionStrings__Ledger.");
 var apiKey = builder.Configuration["ApiKey"] ?? throw new InvalidOperationException("Configure ApiKey com pelo menos 32 caracteres.");
 if (apiKey.Length < 32) throw new InvalidOperationException("ApiKey deve ter pelo menos 32 caracteres.");

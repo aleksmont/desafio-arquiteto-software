@@ -107,7 +107,7 @@ Consultas históricas crescem com o diário. Medir volume e latência antes de i
 
 A API exige chave de serviço e falha ao iniciar sem configuração. A comparação usa hashes de tamanho fixo em tempo constante. Não há logs de corpo, credencial ou dados financeiros. SQL parametrizado evita interpolação de entrada. O exemplo mantém portas do host em loopback e executa a API como usuário sem privilégios no contêiner.
 
-Antes de produção: TLS entre cliente/gateway/API/banco, autenticação OIDC/mTLS por serviço, autorização por conta/escopo, rotação de segredos via cofre, criptografia de discos/backups, auditoria com acesso restrito, política de retenção/LGPD e gestão de incidentes. UUID não é autorização. O usuário PostgreSQL do Compose é de desenvolvimento; criar papel de runtime sem DDL e sem UPDATE/DELETE no diário, e papel separado para migrações. O diário é protegido pela API e pelo trigger da migração 002 contra UPDATE, DELETE e TRUNCATE. Um administrador pode remover o trigger; papéis restritos continuam necessários.
+Antes de produção: TLS entre cliente/gateway/API/banco, autenticação OIDC/mTLS por serviço, autorização por conta/escopo, rotação de segredos via cofre, criptografia de discos/backups, auditoria com acesso restrito, política de retenção/LGPD e gestão de incidentes. UUID não é autorização. O Compose usa `ledger_app`, que herda o papel restrito `ledger_runtime`, sem DDL ou permissão de alterar/apagar movimentos. O administrador aplica migrações; as credenciais fornecidas são de desenvolvimento. O diário é protegido pela API e pelo trigger da migração 002 contra UPDATE, DELETE e TRUNCATE. Um administrador pode remover o trigger; a gestão e revisão dos papéis continuam necessárias.
 
 ## Operação e próximos passos
 
@@ -126,9 +126,9 @@ Não há benchmark ou evidência de capacidade para tráfego de produção nesta
 - O readiness faz uma leitura limitada da tabela de contas; não prova permissões de escrita, existência do trigger ou todas as estruturas.
 - A chave compartilhada não fornece autenticação individual, autorização por conta, trilha de auditoria de acesso ou rotação automática.
 - O trigger protege o diário de mutações acidentais, mas não impede um administrador de removê-lo nem impede escrita externa divergente no saldo.
-- A migração 002 é SQL transacional reaplicável; ainda não há executor com histórico de versões e checksums. Deve ser aplicada explicitamente a volumes existentes.
+- As migrações 002 e 003 são SQL transacional reaplicável; ainda não há executor com histórico de versões e checksums. Deve ser aplicada explicitamente a volumes existentes.
 - O limite de concorrência é por processo e não constitui quota distribuída. Health checks estão fora dele; precisam de proteção de rede no ambiente real.
-- Não há endpoint de extrato, reconciliação automática, vínculo de estorno, transferência atômica entre contas ou razão de partidas dobradas.
+- Há reconciliação somente de leitura por script, mas não agendada. Não há endpoint de extrato, vínculo de estorno, transferência atômica entre contas ou razão de partidas dobradas.
 - Os testes de falha não simulam perda de conexão durante o commit, failover ou restauração de backup.
 
 A [revisão da solução](improvements.md) detalha as melhorias implementadas e suas evidências. A [matriz de requisitos](requirements.md) relaciona a cobertura ao desafio.

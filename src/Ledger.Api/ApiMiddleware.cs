@@ -18,6 +18,10 @@ public sealed class ApiMiddleware(RequestDelegate next, ILogger<ApiMiddleware> l
             return;
         }
         try { await next(context); }
+        catch (BadHttpRequestException ex)
+        {
+            await Problem(context, ex.StatusCode, ex.StatusCode == 413 ? "Corpo da requisição excede o limite permitido." : "Corpo ou parâmetros da requisição inválidos.");
+        }
         catch (LedgerException ex) { await Problem(context, ex.Status, ex.Message); }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {

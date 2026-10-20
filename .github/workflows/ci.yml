@@ -26,6 +26,7 @@ jobs:
           dotnet-version: '10.0.x'
       - run: psql -h localhost -U ledger -d ledger_test -f src/Ledger.Api/schema.sql
       - run: psql -v ON_ERROR_STOP=1 -h localhost -U ledger -d ledger_test -f database/migrations/002-protect-journal.sql
+      - run: psql -v ON_ERROR_STOP=1 -h localhost -U ledger -d ledger_test -f database/migrations/003-runtime-permissions.sql
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
       - run: dotnet test -c Release --no-build
@@ -33,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       API_KEY: ci-only-secret-with-at-least-32-characters
+      LEDGER_APP_PASSWORD: ci-runtime-only-password
     steps:
       - uses: actions/checkout@v4
       - run: docker compose up --build -d

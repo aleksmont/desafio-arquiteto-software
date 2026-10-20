@@ -27,6 +27,12 @@ O teste de proteção SQL exige credencial com permissão suficiente para alcan�
 
 ## O que permanece para uma operação bancária
 
-A melhoria aumenta a confiança no núcleo transacional, mas não demonstra capacidade de produção. Ainda são necessárias autorização por conta, identidade e rotação de credenciais, papéis SQL restritos, reconciliação, backup/PITR testado, failover, métricas e validação de carga. Esses itens exigem requisitos operacionais e ambiente apropriado. O histórico continua representando data de registro, não data econômica ou instante de commit.
+A melhoria aumenta a confiança no núcleo transacional, mas não demonstra capacidade de produção. Ainda são necessárias autorização por conta, identidade e rotação gerenciada de credenciais, agendamento e acompanhamento da reconciliação, backup/PITR testado, failover, métricas e validação de carga. Esses itens exigem requisitos operacionais e ambiente apropriado. O histórico continua representando data de registro, não data econômica ou instante de commit.
 
 Referências da implementação: [testes de integração ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/test/integration-tests?view=aspnetcore-10.0) e [controle de concorrência HTTP](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit).
+
+## Continuação: reduzir privilégios e detectar divergências
+
+A migração 003 e o provisionamento 004 separam o login usado pela API do administrador. Isso reduz o impacto de uma falha na aplicação: os testes comprovam que o runtime opera créditos/débitos, mas não apaga registros, altera schema ou desativa o trigger. A proteção não impede o runtime de atualizar saldo diretamente; por isso a reconciliação adicionada compara a projeção com o diário sem corrigir dados.
+
+Também foram acrescentados contrato JSON estrito, limite de corpo no Kestrel e teste de cancelamento em espera de lock. O objetivo é rejeitar requisições ambíguas e comprovar que uma operação cancelada antes da gravação pode ser repetida com a mesma chave. Não há garantia de cancelamento de operações já confirmadas. O guia de [operação](operations.md) detalha configuração, atualizações e tratamento de divergências.

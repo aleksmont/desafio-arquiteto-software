@@ -42,16 +42,16 @@ Os caminhos da tabela são relativos à raiz do repositório. Os testes ficam em
 
 ## O que os testes demonstram
 
-A suíte ampliada contém 25 casos: regras monetárias, histórico, idempotência, débitos concorrentes, validação de datas, contrato HTTP, autenticação, capacidade simultânea, timeout de lock, indisponibilidade do banco, erro SQL permanente, proteção do diário e rollback após falha entre INSERT e UPDATE. O build trata warnings como erros.
+A suíte ampliada contém 33 casos: regras monetárias, histórico, idempotência, débitos concorrentes, validação de datas, contrato HTTP, autenticação, capacidade simultânea, timeout de lock, indisponibilidade do banco, erro SQL permanente, proteção do diário, rollback após falha entre INSERT e UPDATE, permissões do login restrito, detecção de divergência, cancelamento e JSON inválido. O build trata warnings como erros.
 
 Os testes HTTP usam WebApplicationFactory e o pipeline real da aplicação, com PostgreSQL real para os cenários de persistência. Os testes de falha injetam condições controladas, incluindo bloqueio por outra transação e constraint que impede a atualização de saldo após a inserção do diário. Os testes de proteção SQL exigem a migração 002 aplicada.
 
-Ainda faltam simulações de rede durante commit, cancelamento pelo consumidor, failover, recuperação de backup e ensaio de carga. A existência do workflow não comprova uma execução remota específica: conferir o resultado do GitHub Actions. Há um job separado de contêineres que executa o smoke test; Docker não está disponível no ambiente local usado nesta revisão.
+Ainda faltam simulações de rede durante commit, cancelamento durante commit, failover, recuperação de backup e ensaio de carga. A existência do workflow não comprova uma execução remota específica: conferir o resultado do GitHub Actions. Há um job separado de contêineres que executa o smoke test; Docker não está disponível no ambiente local usado nesta revisão.
 
 ## Evolução priorizada
 
-1. **Reproduzir a entrega:** acompanhar o job de contêineres no CI e ampliar os testes HTTP já implementados, incluindo cancelamento. Critério: ambiente vazio inicia e o fluxo completo passa automaticamente.
-2. **Endurecer acesso e persistência:** identidade por serviço, autorização por conta, papel SQL restrito e migrações versionadas. Critério: consumidor sem permissão não movimenta a conta e runtime não altera o schema ou remove o diário.
+1. **Reproduzir a entrega:** acompanhar o job de contêineres no CI e ampliar os testes HTTP já implementados, ampliar cobertura de cancelamento durante commit. Critério: ambiente vazio inicia e o fluxo completo passa automaticamente.
+2. **Endurecer acesso e persistência:** identidade por serviço, autorização por conta e executor de migrações com checksums; o papel SQL restrito já foi implementado. Critério: consumidor sem permissão não movimenta a conta e runtime não altera o schema ou remove o diário.
 3. **Validar recuperação:** simular resposta perdida, queda do banco e commit ambíguo; ensaiar backup e restauração. Critério: nenhuma duplicata após repetição e saldo reconciliado com o diário.
 4. **Medir e controlar demanda:** estabelecer metas com negócio, medir contas distribuídas e conta concentradora, adicionar métricas e controle de admissão. Critério: limites e degradação conhecidos, sem promessas de capacidade sem medição.
 5. **Expandir domínio conforme necessidade:** múltiplas contas/moedas, transferências, reservas e partidas dobradas. Cada expansão exige invariantes e testes próprios; não é requisito explicitado no desafio.

@@ -65,6 +65,22 @@ public sealed class HttpTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/accounts/{Guid.NewGuid()}/balance")).StatusCode);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"key\":\"missing-type\",\"amount\":1}")]
+    [InlineData("{\"key\":null,\"amount\":1,\"type\":\"credit\"}")]
+    [InlineData("{\"key\":\"unknown\",\"amount\":1,\"type\":\"credit\",\"ammount\":999}")]
+    [InlineData("null")]
+    public async Task MalformedContractIsRejected(string json)
+    {
+        using var client = factory.AuthenticatedClient();
+        var path = $"/accounts/{Guid.NewGuid()}";
+        await client.PutAsync(path, null);
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync(path + "/movements", content)).StatusCode);
+        Assert.Equal(0m, (await client.GetFromJsonAsync<Balance>(path + "/balance"))!.Amount);
+    }
+
     [Fact]
     public async Task DatabaseUnavailableReturnsRetryableProblem()
     {
