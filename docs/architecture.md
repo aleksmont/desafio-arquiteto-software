@@ -1,5 +1,7 @@
 # Decisões de arquitetura e operação
 
+Para o raciocínio que orienta as escolhas e os critérios para revê-las, consulte a [Visão do Arquiteto](visao-do-arquiteto.md).
+
 ## Visão geral e responsabilidades
 
 ```mermaid

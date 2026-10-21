@@ -83,6 +83,7 @@ Exemplo: após um crédito de R$ 100,50 e um débito de R$ 30,25, o saldo atual 
 
 | Documento | O que explica |
 | --- | --- |
+| [Visão do Arquiteto](docs/visao-do-arquiteto.md) | Considerações, motivações, alternativas e critérios para evolução da solução |
 | [Requisitos e evidências](docs/requirements.md) | O que o enunciado pede, onde foi atendido e o que ainda precisa ser validado |
 | [Arquitetura e decisões](docs/architecture.md) | Responsabilidade de cada componente, fluxo de uma operação e motivos das escolhas |
 | [Melhorias e justificativas](docs/improvements.md) | Mudanças de confiabilidade, custos e evidências da revisão |
