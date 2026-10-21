@@ -38,6 +38,39 @@ Criar vários projetos, interfaces e serviços agora aumentaria a quantidade de 
 
 Microserviços seriam uma possibilidade de evolução, mas separar a gravação do diário da atualização do saldo introduziria coordenação distribuída em uma operação que hoje precisa ser atômica. A separação exige uma necessidade concreta e um contrato explícito de consistência.
 
+### Diagrama de arquitetura
+
+O desenho abaixo representa a implementação atual: uma aplicação e um banco. Os blocos internos da API são responsabilidades do mesmo processo, não serviços independentes. O diário e o saldo são tabelas do mesmo PostgreSQL.
+
+```mermaid
+flowchart TB
+    Consumer["Serviço consumidor interno"]
+
+    subgraph API["Aplicação C# / ASP.NET Core"]
+        Access["ApiMiddleware<br/>Credencial e tratamento de erros"]
+        Admission["Controle de admissão<br/>Limite de operações simultâneas"]
+        Routes["Endpoints de contas<br/>Criação, movimentação e saldo"]
+        Store["Store<br/>Validação, regras de saldo e SQL"]
+        Access --> Admission --> Routes --> Store
+    end
+
+    subgraph DB["PostgreSQL / acesso da API pelo login restrito"]
+        subgraph Atomic["Mesma transação na gravação de uma movimentação"]
+            Journal[("movements<br/>Diário financeiro")]
+            Accounts[("accounts<br/>Saldo atual")]
+        end
+    end
+
+    Consumer -->|"HTTP + X-Api-Key"| Access
+    Store -->|"Inserir movimento / consultar histórico"| Journal
+    Store -->|"Bloquear conta / atualizar ou consultar saldo"| Accounts
+    Reconcile["Reconciliação operacional<br/>Somente leitura, sem correção automática"]
+    Reconcile -.->|"Comparar diário"| Journal
+    Reconcile -.->|"Comparar saldo"| Accounts
+```
+
+As setas contínuas mostram o caminho da aplicação; as pontilhadas mostram a verificação operacional separada. A fronteira destacada no banco explica a garantia principal: inserir o movimento e atualizar o saldo são partes de uma única transação. Se essa transação falhar antes da confirmação, nenhuma dessas alterações é persistida. Leituras e criação de conta têm seus próprios fluxos; não precisam executar as duas escritas do diagrama.
+
 ## 2. Diário como registro dos fatos e saldo como projeção síncrona
 
 A tabela `movements` preserva os créditos e débitos. A tabela `accounts` mantém o saldo atual para evitar uma soma completa a cada leitura. O saldo é uma projeção síncrona: seu valor é atualizado na mesma transação do movimento.
@@ -67,6 +100,70 @@ Isso evita uma segunda aplicação da mesma intenção quando o consumidor mant�
 A chave é consultada antes da avaliação de um novo débito, pois o saldo pode ter mudado justamente pela operação original. Falhas de negócio que não gravaram movimento não consomem a chave. As chaves permanecem no diário; remover registros antigos exigiria preservar a política de idempotência e seus prazos.
 
 Uma fila, sozinha, não resolveria esse problema: consumidores também podem receber mensagens repetidas. Caso eventos sejam necessários, a evolução indicada é publicação via outbox transacional e consumidores idempotentes, com semântica de entrega documentada.
+
+### Diagrama do fluxo de uma movimentação financeira
+
+O consumidor envia `POST /accounts/{id}/movements` com chave, valor e tipo. O fluxo de crédito e débito usa a mesma transação; o débito acrescenta a verificação de saldo suficiente. As respostas abaixo distinguem recusa de entrada, repetição, conflito e confirmação de uma nova operação.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Consumidor
+    participant A as API
+    participant S as Store
+    participant P as PostgreSQL
+
+    C->>A: POST com X-Api-Key, chave, valor e tipo
+    alt Credencial inválida ou capacidade excedida
+        A-->>C: 401 ou 429, sem iniciar a movimentação
+    else Requisição admitida
+        A->>S: Registrar movimentação
+        S->>S: Validar chave, valor e tipo
+        alt Entrada inválida
+            S-->>A: Erro de validação
+            A-->>C: 400, sem abrir transação
+        else Entrada válida
+            S->>P: BEGIN READ COMMITTED e configurar lock_timeout
+            S->>P: SELECT saldo FOR UPDATE na conta
+            Note over S,P: A mesma conta é processada sob bloqueio<br/>até o encerramento da transação
+            alt Conta inexistente
+                S->>P: Encerrar transação sem escrita
+                S-->>A: Conta não encontrada
+                A-->>C: 404
+            else Conta encontrada
+                S->>P: Consultar chave idempotente da conta
+                P-->>S: Movimento existente ou chave nova
+                alt Mesma chave e mesmo valor e tipo
+                    S->>P: Encerrar transação sem nova escrita
+                    S-->>A: Movimento original
+                    A-->>C: 200, saldo não é alterado novamente
+                else Mesma chave com conteúdo diferente
+                    S->>P: Encerrar transação sem escrita
+                    S-->>A: Conflito de chave
+                    A-->>C: 409
+                else Chave nova
+                    S->>S: Calcular saldo e verificar limites
+                    alt Débito sem fundos ou limite de saldo excedido
+                        S->>P: Encerrar transação sem escrita
+                        S-->>A: Conflito de negócio
+                        A-->>C: 409, chave não é consumida
+                    else Operação permitida
+                        S->>P: INSERT no diário, com horário do banco
+                        S->>P: UPDATE do saldo da conta
+                        S->>P: COMMIT
+                        P-->>S: Confirmação
+                        S-->>A: Movimento criado
+                        A-->>C: 201
+                    end
+                end
+            end
+        end
+    end
+```
+
+Falhas de persistência podem interromper as chamadas ao banco: uma falha anterior ao commit provoca rollback das escritas da transação. A API classifica falhas transitórias, incluindo espera de lock excedida, como 503 e erros SQL permanentes como 500. O diagrama concentra os caminhos de negócio; erros de leitura do corpo HTTP também podem ser recusados pela API antes da chamada ao `Store`.
+
+Se a conexão cair durante o commit ou a resposta 201 se perder depois dele, o consumidor não sabe se houve confirmação. Deve reenviar a mesma chave, valor e tipo: se o registro estiver confirmado, percorrerá o caminho de resposta 200; caso contrário, poderá criar a operação. Gerar outra chave nesse momento pode duplicar a intenção financeira.
 
 ## 5. Leitura rápida sem esconder a semântica do histórico
 
