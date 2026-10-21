@@ -10,13 +10,16 @@ namespace Ledger.Tests;
 
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
+    public string ApplicationName { get; } = "http-test-" + Guid.NewGuid().ToString("N");
     public const string Key = "integration-test-secret-with-32-characters";
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseSetting("ConnectionStrings:Ledger", Environment.GetEnvironmentVariable("TEST_DATABASE")
-            ?? throw new InvalidOperationException("Configure TEST_DATABASE."));
+        var database = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("TEST_DATABASE")
+            ?? throw new InvalidOperationException("Configure TEST_DATABASE.")) { ApplicationName = ApplicationName };
+        builder.UseSetting("ConnectionStrings:Ledger", database.ConnectionString);
         builder.UseSetting("ApiKey", Key);
         builder.UseSetting("MaxConcurrentRequests", "1");
+        builder.UseSetting("ServiceKeys:partner", "partner-test-key-with-at-least-32-characters");
     }
     public HttpClient AuthenticatedClient()
     {
@@ -63,6 +66,23 @@ public sealed class HttpTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(path + "/balance?at=2026-10-20T12:00:00")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(path + "/balance?at=2026-10-20T12:00:00Z")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/accounts/{Guid.NewGuid()}/balance")).StatusCode);
+    }
+
+    [Fact]
+    public async Task ServiceCannotReadMoveOrClaimAnotherServicesAccount()
+    {
+        using var first = factory.AuthenticatedClient();
+        using var second = factory.CreateClient();
+        second.DefaultRequestHeaders.Add("X-Api-Key", "partner-test-key-with-at-least-32-characters");
+        var path = $"/accounts/{Guid.NewGuid()}";
+        Assert.Equal(HttpStatusCode.NoContent, (await first.PutAsync(path, null)).StatusCode);
+        await first.PostAsJsonAsync(path + "/movements", new MovementRequest("private", 10, "credit"));
+        Assert.Equal(HttpStatusCode.NotFound, (await second.GetAsync(path + "/balance")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await second.GetAsync(path + "/balance?at=2030-01-01T00:00:00Z")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await second.PutAsync(path, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await second.PostAsJsonAsync(path + "/movements", new MovementRequest("steal", 1, "debit"))).StatusCode);
+        Assert.Equal(10m, (await first.GetFromJsonAsync<Balance>(path + "/balance"))!.Amount);
+        Assert.Equal(HttpStatusCode.NoContent, (await second.PutAsync($"/accounts/{Guid.NewGuid()}", null)).StatusCode);
     }
 
     [Theory]
@@ -148,7 +168,8 @@ public sealed class HttpTests : IClassFixture<ApiFactory>
             var waiting = false;
             for (var i = 0; i < 100; i++)
             {
-                await using var probe = source.CreateCommand("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT balance FROM accounts%')");
+                await using var probe = source.CreateCommand("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT balance FROM accounts%')");
+                probe.Parameters.AddWithValue(factory.ApplicationName);
                 if ((bool)(await probe.ExecuteScalarAsync())!) { waiting = true; break; }
                 await Task.Delay(10);
             }

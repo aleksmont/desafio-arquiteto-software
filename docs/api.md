@@ -1,12 +1,12 @@
 # Contrato e exemplos da API
 
-Base local: `http://localhost:8080`. Exceto `/health/live`, os endpoints exigem `X-Api-Key`. Exemplos completos de execução estão no [README](../README.md). Valores monetários são números JSON com até duas casas decimais; integrações devem usar representação decimal, evitando cálculos com ponto flutuante binário.
+Base local: `http://localhost:8080`. Exceto `/health/live`, os endpoints exigem `X-Api-Key`. A chave principal identifica `demo`; chaves adicionais são configuradas como `ServiceKeys__nome=...`, com pelo menos 32 caracteres e valores distintos. Cada conta pertence à identidade que a criou. Outra identidade recebe 404 ao tentar ler, movimentar ou reivindicar o mesmo UUID, evitando revelar a existência da conta. Exemplos completos de execução estão no [README](../README.md). Valores monetários são números JSON com até duas casas decimais; integrações devem usar representação decimal, evitando cálculos com ponto flutuante binário.
 
 ## Endpoints
 
 | Método e rota | Finalidade | Resposta de sucesso |
 | --- | --- | --- |
-| `PUT /accounts/{id}` | Criar conta com UUID definido pelo consumidor | 204, inclusive se já existir; não redefine o saldo |
+| `PUT /accounts/{id}` | Criar conta vinculada à identidade autenticada | 204, inclusive se já existir; não redefine o saldo |
 | `POST /accounts/{id}/movements` | Registrar crédito ou débito | 201 para novo registro; 200 para repetição idêntica |
 | `GET /accounts/{id}/balance` | Obter saldo atual | 200 com saldo |
 | `GET /accounts/{id}/balance?at=...` | Somar registros até um instante, inclusive | 200 com saldo histórico |
@@ -66,7 +66,7 @@ Uma data futura inclui apenas movimentos já confirmados e visíveis na consulta
 | 400 | Valor, tipo ou chave inválidos; falha de vinculação de parâmetros | Corrigir requisição |
 | 413 | Corpo excede 16 KiB no servidor HTTP | Reduzir requisição |
 | 401 | Chave de acesso ausente ou inválida | Corrigir credencial; resposta em Problem Details |
-| 404 | Conta não encontrada, ou rota inexistente | Conferir identificador e rota |
+| 404 | Conta não encontrada, não autorizada para o serviço, ou rota inexistente | Conferir identificador e rota |
 | 409 | Saldo insuficiente, chave conflitante ou limite de saldo excedido | Tratar conflito de negócio; não repetir cegamente |
 | 429 | Limite de operações simultâneas atingido | Respeitar Retry-After e repetir a mesma chave |
 | 503 | Falha transitória, timeout ou espera de lock excedida | Respeitar Retry-After e repetir a mesma chave com política limitada |

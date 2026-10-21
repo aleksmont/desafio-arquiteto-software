@@ -18,12 +18,12 @@ O consumidor conhece a intenção de negócio e fornece sua chave idempotente. A
 
 | Componente | Por que existe | Limite da responsabilidade |
 | --- | --- | --- |
-| `Program.cs` | Configurar dependências, limite de concorrência e endpoints | Não faz cálculo de saldo ou SQL de movimentação; a chave compartilhada não autoriza por conta |
+| `Program.cs` | Configurar dependências, limite de concorrência e endpoints | Não faz cálculo de saldo ou SQL; encaminha a identidade autenticada ao Store |
 | `ApiMiddleware.cs` e `HistoryInstant.cs` | Centralizar autenticação, falhas de persistência e validação explícita do instante histórico | Chave de serviço ainda não distingue titulares |
 | `Domain.cs` | Definir contratos, validação monetária e erro de negócio | Ainda não há entidade de cliente, transferência ou regras contábeis completas |
 | `Store.cs` | Manter bloqueio, verificação e gravação na mesma transação | Reúne regras dependentes de saldo e SQL; separar quando houver complexidade que justifique |
 | `schema.sql` | Formalizar precisão, relações, unicidade e índice de histórico | Bootstrap inicial, não ferramenta de migração nem proteção contra administrador |
-| Suíte `Ledger.Tests` | Verificar invariantes, HTTP, falhas e concorrência usando o banco real | Não simula failover, desastre ou rede interrompida durante commit |
+| Suíte `Ledger.Tests` | Verificar invariantes, HTTP, falhas e concorrência usando o banco real | Simula perda de conexão no COMMIT; não simula failover ou desastre |
 | `compose.yaml` e `Dockerfile` | Tornar ambiente e empacotamento reproduzíveis | Configuração de desenvolvimento; não representa infraestrutura de alta disponibilidade |
 | `ci.yml` e `Directory.Build.props` | Repetir build/testes e impedir aprovação com warnings | Não mede carga, segurança operacional ou recuperação |
 
@@ -126,11 +126,13 @@ Não há benchmark ou evidência de capacidade para tráfego de produção nesta
 ## Limitações observáveis nesta versão
 
 - O readiness faz uma leitura limitada da tabela de contas; não prova permissões de escrita, existência do trigger ou todas as estruturas.
-- A chave compartilhada não fornece autenticação individual, autorização por conta, trilha de auditoria de acesso ou rotação automática.
+- A autorização por conta usa identidade de serviço; não fornece identidade de pessoa física, auditoria de acesso completa ou rotação automática.
 - O trigger protege o diário de mutações acidentais, mas não impede um administrador de removê-lo nem impede escrita externa divergente no saldo.
-- As migrações 002 e 003 são SQL transacional reaplicável; ainda não há executor com histórico de versões e checksums. Deve ser aplicada explicitamente a volumes existentes.
+- As migrações 002, 003 e 005 são SQL transacional reaplicável; ainda não há executor com histórico de versões e checksums. Deve ser aplicada explicitamente a volumes existentes.
 - O limite de concorrência é por processo e não constitui quota distribuída. Health checks estão fora dele; precisam de proteção de rede no ambiente real.
 - Há reconciliação somente de leitura por script, mas não agendada. Não há endpoint de extrato, vínculo de estorno, transferência atômica entre contas ou razão de partidas dobradas.
-- Os testes de falha não simulam perda de conexão durante o commit, failover ou restauração de backup.
+- Os testes simulam perda de conexão no COMMIT; não simulam failover ou restauração de backup.
 
 A [revisão da solução](improvements.md) detalha as melhorias implementadas e suas evidências. A [matriz de requisitos](requirements.md) relaciona a cobertura ao desafio.
+
+A API agora filtra contas por `owner_id`, derivado da credencial de serviço. Cortes de rede no COMMIT e perfis de carga foram exercitados; veja [resultados e limitações](validation-results.md). Esses ensaios não substituem recuperação de desastre ou identidade do titular final.

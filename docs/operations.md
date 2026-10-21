@@ -18,6 +18,7 @@ Adicionar `LEDGER_APP_PASSWORD` ao `.env` antes de iniciar. A API deverá usar a
 docker compose up -d db
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger < database/migrations/002-protect-journal.sql
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger < database/migrations/003-runtime-permissions.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger < database/migrations/005-account-ownership.sql
 docker compose exec -T db bash /docker-entrypoint-initdb.d/004-configure-runtime.sh
 docker compose up --build -d api
 ```
@@ -55,3 +56,11 @@ O teste cancela uma operação enquanto ela espera o bloqueio da conta e verific
 ## Entrada HTTP
 
 Campos `key`, `amount` e `type` são obrigatórios; propriedades desconhecidas são rejeitadas. Isso evita aceitar um nome digitado incorretamente e ignorar informação que o consumidor julgava relevante. O servidor Kestrel limita o corpo a 16 KiB, suficiente para o contrato pequeno; corpos excedentes retornam 413. O teste de contêiner usa HTTP real para verificar esse limite, que o servidor de testes em memória não implementa da mesma forma.
+
+## Identidade de serviço e contas existentes
+
+`ApiKey` identifica o serviço `demo`. Para outros serviços, configure `ServiceKeys__partner=...` com chave distinta de pelo menos 32 caracteres; no Compose, acrescente essa variável ao ambiente do serviço API. IDs não podem exceder 100 caracteres. Chaves duplicadas ou inválidas impedem o início da aplicação. Não reutilize uma chave para identidades distintas.
+
+Novas contas recebem a identidade autenticada em `owner_id`. A API aplica esse filtro a leitura atual/histórica e movimentações e impede assumir um UUID de outro serviço. Isso é autorização no nível da aplicação: todas as identidades usam o mesmo papel PostgreSQL, sem RLS. Não há autorização de titular final ou rotação gerenciada.
+
+A migração 005 atribui `legacy` às contas que já existiam; elas ficam inacessíveis à chave `demo` até classificação administrativa explícita. Após conferir a propriedade com negócio e preservar evidência da decisão, um administrador pode atribuir `owner_id` aos UUIDs corretos. Não existe reatribuição por API nem atualização em massa automática. Em ambientes de avaliação, prefira criar novas contas. A migração não deve ser aplicada a dados existentes sem planejar essa transição.

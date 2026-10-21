@@ -37,6 +37,7 @@ O serviço `db` usa PostgreSQL 18, cria o banco `ledger_test` e executa os arqui
 | `001-schema.sql`, montado a partir de `src/Ledger.Api/schema.sql` | Tabelas de contas e movimentos, constraints e índice | Os testes exercitam o mesmo modelo de dados da aplicação |
 | `002-protect-journal.sql` | Trigger contra alteração, exclusão e truncamento do diário | Permite verificar a proteção dos registros financeiros |
 | `003-runtime-permissions.sql` | Papel restrito `ledger_runtime` | Permite testar quais operações um login de runtime pode executar |
+| `005-account-ownership.sql` | Propriedade da conta por serviço | Permite verificar isolamento entre credenciais |
 
 O banco usa armazenamento temporário (`tmpfs`) e não publica a porta 5432 no computador. A conexão é interna à rede desse projeto Compose. O arquivo de testes não usa as credenciais do `.env` nem o volume persistente da aplicação; a conexão `TEST_DATABASE` é definida no próprio serviço de testes.
 
@@ -54,7 +55,7 @@ O serviço `tests` executa `dotnet test -c Release --no-build --no-restore`. A c
 
 **Por quê:** reutilizar o build evita trabalho duplicado e garante que a suíte rode o código que acabou de compilar. Os testes HTTP usam o pipeline real em um servidor de teste em memória; o teste do servidor HTTP real continua no smoke test separado. O comando principal não inicia a API do Compose da aplicação.
 
-O terminal mostra o progresso e o resumo da suíte. O resultado esperado é `Passed!` com 33 casos aprovados. Com falha, o framework mostra o teste e sua mensagem. A quantidade de casos pode aumentar com a evolução do projeto.
+O terminal mostra o progresso e o resumo da suíte. O resultado esperado é `Passed!` com 36 casos aprovados. Com falha, o framework mostra o teste e sua mensagem. A quantidade de casos pode aumentar com a evolução do projeto.
 
 ### 7. Encerrar os serviços e preservar o resultado
 
@@ -80,6 +81,7 @@ docker compose exec db createdb -U ledger ledger_test
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < src/Ledger.Api/schema.sql
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < database/migrations/002-protect-journal.sql
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < database/migrations/003-runtime-permissions.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < database/migrations/005-account-ownership.sql
 export TEST_DATABASE='Host=localhost;Database=ledger_test;Username=ledger;Password=local-only'
 dotnet restore
 dotnet build -c Release --no-restore
@@ -109,3 +111,5 @@ API_KEY=local-development-key-change-me-123456 bash scripts/smoke.sh
 ```
 
 Requer Bash, curl e Python 3. Cria uma conta exclusiva e verifica crédito, repetição idempotente, saldo e recusa de corpo acima de 16 KiB. Pode usar `BASE_URL` para outra porta. Esse script escreve no banco da API indicada; o comando principal `scripts/test.sh` não depende dele e usa seu próprio banco isolado.
+
+Os testes de confirmação do COMMIT usam um proxy TCP dentro do projeto de testes; não dependem de serviço externo. Para o ensaio de carga independente, execute `bash scripts/load.sh`. Método, números e limitações estão em [resultados da revisão](validation-results.md).

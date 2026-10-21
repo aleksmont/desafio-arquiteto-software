@@ -21,3 +21,13 @@ jobs:
         run: docker compose logs
       - if: always()
         run: docker compose down -v
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/load.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: load-results
+          path: artifacts/load/load.json
+          if-no-files-found: error

@@ -17,6 +17,7 @@ if (!connectionBuilder.ContainsKey("Timeout")) connectionBuilder.Timeout = 5;
 if (!connectionBuilder.ContainsKey("Command Timeout")) connectionBuilder.CommandTimeout = 10;
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionBuilder.ConnectionString));
 builder.Services.AddSingleton<Store>();
+builder.Services.AddSingleton(new ServiceCredentials(builder.Configuration));
 builder.Services.AddProblemDetails();
 builder.Services.AddRateLimiter(options =>
 {
@@ -44,18 +45,18 @@ app.MapGet("/health/ready", async (NpgsqlDataSource source, CancellationToken ct
     return Results.Ok(new { status = "ready" });
 });
 var accounts = app.MapGroup("/accounts").RequireRateLimiting("database");
-accounts.MapPut("/{id:guid}", async (Guid id, Store store, CancellationToken ct) =>
+accounts.MapPut("/{id:guid}", async (Guid id, Store store, HttpContext http, CancellationToken ct) =>
 {
-    await store.CreateAccount(id, ct);
+    await store.CreateAccount(id, ct, (string)http.Items["ServiceId"]!);
     return Results.NoContent();
 });
-accounts.MapPost("/{id:guid}/movements", async (Guid id, MovementRequest request, Store store, CancellationToken ct) =>
+accounts.MapPost("/{id:guid}/movements", async (Guid id, MovementRequest request, Store store, HttpContext http, CancellationToken ct) =>
 {
-    var result = await store.Record(id, request, ct);
+    var result = await store.Record(id, request, ct, (string)http.Items["ServiceId"]!);
     return Results.Json(result.Value, statusCode: result.Created ? 201 : 200);
 });
-accounts.MapGet("/{id:guid}/balance", async (Guid id, string? at, Store store, CancellationToken ct) =>
-    Results.Ok(await store.GetBalance(id, HistoryInstant.Parse(at), ct)));
+accounts.MapGet("/{id:guid}/balance", async (Guid id, string? at, Store store, HttpContext http, CancellationToken ct) =>
+    Results.Ok(await store.GetBalance(id, HistoryInstant.Parse(at), ct, (string)http.Items["ServiceId"]!)));
 app.Run();
 
 public partial class Program;

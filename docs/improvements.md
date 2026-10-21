@@ -26,7 +26,7 @@ O teste de proteção SQL exige credencial com permissão suficiente para alcan�
 
 ## O que permanece para uma operação bancária
 
-A melhoria aumenta a confiança no núcleo transacional, mas não demonstra capacidade de produção. Ainda são necessárias autorização por conta, identidade e rotação gerenciada de credenciais, agendamento e acompanhamento da reconciliação, backup/PITR testado, failover, métricas e validação de carga. Esses itens exigem requisitos operacionais e ambiente apropriado. O histórico continua representando data de registro, não data econômica ou instante de commit.
+A melhoria aumenta a confiança no núcleo transacional, mas não demonstra capacidade de produção. Ainda são necessárias identidade do titular final e rotação gerenciada de credenciais, agendamento e acompanhamento da reconciliação, backup/PITR testado, failover, métricas e validação de carga. Esses itens exigem requisitos operacionais e ambiente apropriado. O histórico continua representando data de registro, não data econômica ou instante de commit.
 
 Referências da implementação: [testes de integração ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/test/integration-tests?view=aspnetcore-10.0) e [controle de concorrência HTTP](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit).
 
@@ -39,3 +39,7 @@ Também foram acrescentados contrato JSON estrito, limite de corpo no Kestrel e 
 ## Execução local simplificada
 
 A preparação manual do banco saiu do caminho principal. `compose.test.yaml` e `Dockerfile.test` descrevem as dependências da suíte; `scripts/test.sh` coordena execução e limpeza, preservando o código de erro. Nomes de projeto exclusivos e ausência de portas do host permitem rodar os testes sem conflitar com o banco da aplicação. Os passos detalhados ficam opcionais para desenvolvimento com IDE. O custo é depender de Docker e baixar imagens na primeira execução.
+
+## Correções da revisão de avaliador
+
+A sincronização do teste de saturação foi isolada por sessão; o exemplo histórico usa o horário real retornado; a API vincula contas à identidade do serviço. Foram adicionados testes de perda de conexão no COMMIT e um ensaio HTTP de carga. Os [resultados](validation-results.md) apresentam método, medições e limites sem alegação de capacidade de produção.

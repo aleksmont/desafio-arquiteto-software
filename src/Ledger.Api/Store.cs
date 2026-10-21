@@ -4,15 +4,21 @@ namespace Ledger.Api;
 
 public sealed class Store(NpgsqlDataSource source)
 {
-    public async Task CreateAccount(Guid id, CancellationToken ct = default)
+    public async Task CreateAccount(Guid id, CancellationToken ct = default, string owner = "demo")
     {
         if (id == Guid.Empty) throw new LedgerException(400, "Conta inválida.");
-        await using var cmd = source.CreateCommand("INSERT INTO accounts(id) VALUES ($1) ON CONFLICT DO NOTHING");
+        await using var cmd = source.CreateCommand("INSERT INTO accounts(id, owner_id) VALUES ($1,$2) ON CONFLICT DO NOTHING");
         cmd.Parameters.AddWithValue(id);
+        cmd.Parameters.AddWithValue(owner);
         await cmd.ExecuteNonQueryAsync(ct);
+        // Não permitir tomar posse de um UUID já existente em outra identidade.
+        await using var check = source.CreateCommand("SELECT 1 FROM accounts WHERE id=$1 AND owner_id=$2");
+        check.Parameters.AddWithValue(id);
+        check.Parameters.AddWithValue(owner);
+        if (await check.ExecuteScalarAsync(ct) is null) throw new LedgerException(404, "Conta não encontrada.");
     }
 
-    public async Task<(Movement Value, bool Created)> Record(Guid account, MovementRequest request, CancellationToken ct = default)
+    public async Task<(Movement Value, bool Created)> Record(Guid account, MovementRequest request, CancellationToken ct = default, string owner = "demo")
     {
         request.Validate();
         await using var conn = await source.OpenConnectionAsync(ct);
@@ -20,8 +26,9 @@ public sealed class Store(NpgsqlDataSource source)
         await using var limits = new NpgsqlCommand("SET LOCAL lock_timeout = '3s'", conn, tx);
         await limits.ExecuteNonQueryAsync(ct);
         // Serializa apenas movimentações da mesma conta; contas diferentes progridem em paralelo.
-        await using var locked = new NpgsqlCommand("SELECT balance FROM accounts WHERE id=$1 FOR UPDATE", conn, tx);
+        await using var locked = new NpgsqlCommand("SELECT balance FROM accounts WHERE id=$1 AND owner_id=$2 FOR UPDATE", conn, tx);
         locked.Parameters.AddWithValue(account);
+        locked.Parameters.AddWithValue(owner);
         var current = await locked.ExecuteScalarAsync(ct);
         if (current is null) throw new LedgerException(404, "Conta não encontrada.");
         await using var lookup = new NpgsqlCommand("SELECT id, amount, type, recorded_at FROM movements WHERE account_id=$1 AND idempotency_key=$2", conn, tx);
@@ -56,13 +63,14 @@ public sealed class Store(NpgsqlDataSource source)
         return (new Movement(id, account, request.Key, request.Amount, request.Type, new DateTimeOffset(recordedAt)), true);
     }
 
-    public async Task<Balance> GetBalance(Guid account, DateTimeOffset? at, CancellationToken ct = default)
+    public async Task<Balance> GetBalance(Guid account, DateTimeOffset? at, CancellationToken ct = default, string owner = "demo")
     {
         // Uma única instrução oferece uma fotografia consistente sob READ COMMITTED.
         await using var cmd = source.CreateCommand(at is null
-            ? "SELECT balance FROM accounts WHERE id=$1"
-            : "SELECT COALESCE((SELECT SUM(CASE WHEN type='credit' THEN amount ELSE -amount END) FROM movements WHERE account_id=$1 AND recorded_at <= $2),0) FROM accounts WHERE id=$1");
+            ? "SELECT balance FROM accounts WHERE id=$1 AND owner_id=$2"
+            : "SELECT COALESCE((SELECT SUM(CASE WHEN type='credit' THEN amount ELSE -amount END) FROM movements WHERE account_id=$1 AND recorded_at <= $3),0) FROM accounts WHERE id=$1 AND owner_id=$2");
         cmd.Parameters.AddWithValue(account);
+        cmd.Parameters.AddWithValue(owner);
         if (at is not null) cmd.Parameters.AddWithValue(at.Value.ToUniversalTime());
         var value = await cmd.ExecuteScalarAsync(ct);
         if (value is null) throw new LedgerException(404, "Conta não encontrada.");

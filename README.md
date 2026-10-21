@@ -14,7 +14,7 @@ bash scripts/test.sh
 
 O comando prepara PostgreSQL e .NET em contêineres, aplica o schema e as migrações, compila sem warnings e executa todos os testes. Não precisa de `.env`, SDK, cliente PostgreSQL ou banco instalado. O banco é temporário, sem portas expostas, e não usa os dados da aplicação. Ao terminar, o ambiente é removido automaticamente; imagens ficam em cache para acelerar a próxima execução.
 
-O resultado esperado é `Passed!` com os 33 testes aprovados. Em caso de falha, os detalhes aparecem no terminal e o comando retorna erro. A primeira execução demora mais por causa dos downloads. Execute novamente o mesmo comando para repetir os testes com um banco novo. O GitHub Actions usa esse mesmo caminho.
+O resultado esperado é `Passed!` com os 36 testes aprovados. Em caso de falha, os detalhes aparecem no terminal e o comando retorna erro. A primeira execução demora mais por causa dos downloads. Execute novamente o mesmo comando para repetir os testes com um banco novo. O GitHub Actions usa esse mesmo caminho.
 
 O [passo a passo do script](docs/development.md#como-funciona-o-comando-de-testes) explica o que cada etapa faz e por que existe.
 
@@ -37,31 +37,42 @@ Para instalações que já têm volume antigo, siga [atualização do banco](doc
 
 ## Premissas
 
-- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos. A API recebe o identificador da conta; não há cadastro de clientes nem vínculo de titularidade persistido.
+- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos. A API recebe o identificador da conta; o vínculo persistido é com o serviço criador; não há cadastro de titulares finais.
 - Sem cheque especial: débitos que excedam o saldo retornam 409.
 - O histórico representa o instante de registro (`recordedAt`, UTC), inclusive no limite `at`. Não há lançamentos retroativos ou futuros. A posição considera os registros já confirmados visíveis na consulta; não é uma reconstrução do instante exato de commit.
 - Contas novas começam em zero. Conta inexistente retorna 404.
 - Correções financeiras devem ser novos lançamentos compensatórios; não há edição ou remoção de movimentos.
-- O consumidor é um serviço interno confiável. A chave compartilhada desta demonstração não implementa autorização por cliente.
+- O consumidor é um serviço interno confiável. A credencial identifica um serviço e só permite acesso às contas que ele criou; não há autenticação do cliente final.
 
 ## Experimentar a API
 
-Com a aplicação iniciada e as credenciais padrão do `.env.example`:
+Com a aplicação iniciada e as credenciais padrão do `.env.example`. O exemplo usa Bash, curl e Python 3 e retorna saldo atual e histórico de R$ 100,50:
 
 ```sh
 export API_KEY=local-development-key-change-me-123456
-export ACCOUNT=11111111-1111-1111-1111-111111111111
+export ACCOUNT="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 curl -i -X PUT "http://localhost:8080/accounts/$ACCOUNT" -H "X-Api-Key: $API_KEY"
-curl -i -X POST "http://localhost:8080/accounts/$ACCOUNT/movements" \
+MOVEMENT=$(curl -fsS -X POST "http://localhost:8080/accounts/$ACCOUNT/movements" \
   -H "X-Api-Key: $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"key":"deposit-001","amount":100.50,"type":"credit"}'
+  -d '{"key":"deposit-001","amount":100.50,"type":"credit"}')
+printf '%s\n' "$MOVEMENT"
 curl "http://localhost:8080/accounts/$ACCOUNT/balance" -H "X-Api-Key: $API_KEY"
-curl "http://localhost:8080/accounts/$ACCOUNT/balance?at=2026-10-19T23:00:00Z" -H "X-Api-Key: $API_KEY"
+RECORDED_AT=$(printf '%s' "$MOVEMENT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["recordedAt"])')
+curl -G "http://localhost:8080/accounts/$ACCOUNT/balance" \
+  --data-urlencode "at=$RECORDED_AT" -H "X-Api-Key: $API_KEY"
 ```
 
 Use `type: debit` para debitar. Reenvie o mesmo corpo e chave após timeout: o primeiro registro retorna 201 e repetições retornam 200 com o mesmo movimento. Chave reutilizada com valor ou tipo diferente retorna 409. A chave é única por conta e deve identificar uma intenção de negócio, sem dados pessoais. Valores e tipos inválidos retornam 400; credencial ausente/inválida, 401; falha transitória de persistência, 503; erro SQL permanente, 500; capacidade simultânea excedida, 429. Datas no parâmetro `at` devem incluir `Z` ou offset (codifique `+` como `%2B`).
 
 `GET /health/live` verifica o processo sem autenticação. `GET /health/ready` exige chave e verifica acesso à tabela de contas. A API não cria tabelas ao iniciar.
+
+## Ensaio de carga (opcional)
+
+```sh
+bash scripts/load.sh
+```
+
+Prepara API e banco descartáveis, mede três cenários de 6000 solicitações e valida saldos e repetições. Não precisa de `.env` nem usa dados da aplicação. O relatório fica em `artifacts/load/load.json`. Consulte [resultados e limitações](docs/validation-results.md) para interpretar as medições. O ensaio curto não certifica capacidade de produção.
 
 ## Desenvolver usando o SDK (opcional)
 
@@ -83,6 +94,7 @@ Exemplo: após um crédito de R$ 100,50 e um débito de R$ 30,25, o saldo atual 
 
 | Documento | O que explica |
 | --- | --- |
+| [Resultados da revisão](docs/validation-results.md) | Correções, ensaio de carga, falhas no COMMIT e limites das evidências |
 | [Visão do Arquiteto](docs/visao-do-arquiteto.md) | Considerações, motivações, alternativas e critérios para evolução da solução |
 | [Requisitos e evidências](docs/requirements.md) | O que o enunciado pede, onde foi atendido e o que ainda precisa ser validado |
 | [Arquitetura e decisões](docs/architecture.md) | Responsabilidade de cada componente, fluxo de uma operação e motivos das escolhas |

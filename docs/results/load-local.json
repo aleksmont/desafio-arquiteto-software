@@ -1,0 +1,79 @@
+{
+  "executed_at_utc": "2026-10-21T12:30:47.101662+00:00",
+  "generator": "Python urllib / HTTP real / novas conexões por requisição",
+  "generator_platform": "macOS-27.0.1-arm64-arm-64bit",
+  "logical_cpus_visible": 8,
+  "admission_limit_per_api_instance": 32,
+  "measurement": "Lote finito fechado; sem warm-up explícito; recuperação fora da medição",
+  "scenarios": [
+    {
+      "name": "distributed",
+      "accounts": 32,
+      "workers": 16,
+      "requests": 6000,
+      "duration_seconds": 2.003,
+      "http_responses_per_second": 2995.78,
+      "created_per_second": 2995.78,
+      "statuses": {
+        "201": 6000
+      },
+      "latency_ms_all_statuses": {
+        "p50": 4.951,
+        "p95": 8.382,
+        "p99": 10.625
+      },
+      "recovered_intentions": 0,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    },
+    {
+      "name": "hot-account",
+      "accounts": 1,
+      "workers": 16,
+      "requests": 6000,
+      "duration_seconds": 5.685,
+      "http_responses_per_second": 1055.41,
+      "created_per_second": 1055.41,
+      "statuses": {
+        "201": 6000
+      },
+      "latency_ms_all_statuses": {
+        "p50": 15.599,
+        "p95": 23.084,
+        "p99": 40.272
+      },
+      "recovered_intentions": 0,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    },
+    {
+      "name": "over-admission-limit",
+      "accounts": 32,
+      "workers": 96,
+      "requests": 6000,
+      "duration_seconds": 2.038,
+      "http_responses_per_second": 2944.3,
+      "created_per_second": 2835.36,
+      "statuses": {
+        "201": 5778,
+        "429": 222
+      },
+      "latency_ms_all_statuses": {
+        "p50": 29.15,
+        "p95": 58.015,
+        "p99": 74.279
+      },
+      "recovered_intentions": 222,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    }
+  ],
+  "execution_environment": {
+    "mode": "API Release e PostgreSQL nativos no mesmo host; sem Docker ou TLS",
+    "dotnet_runtime": "10.0.13",
+    "postgresql": "18.3 (Homebrew)",
+    "host_model": "MacBookPro18,3",
+    "host_memory_gib": 16,
+    "database_state": "Banco de avaliação reutilizado; contas novas por cenário; API previamente exercitada"
+  }
+}

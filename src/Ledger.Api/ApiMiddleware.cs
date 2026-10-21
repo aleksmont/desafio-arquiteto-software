@@ -1,22 +1,19 @@
-using System.Security.Cryptography;
-using System.Text;
 using Npgsql;
 
 namespace Ledger.Api;
 
-public sealed class ApiMiddleware(RequestDelegate next, ILogger<ApiMiddleware> logger, IConfiguration configuration)
+public sealed class ApiMiddleware(RequestDelegate next, ILogger<ApiMiddleware> logger, ServiceCredentials credentials)
 {
-    private readonly byte[] keyHash = SHA256.HashData(Encoding.UTF8.GetBytes(configuration["ApiKey"]!));
-
     public async Task InvokeAsync(HttpContext context)
     {
         if (context.Request.Path == "/health/live") { await next(context); return; }
-        var supplied = SHA256.HashData(Encoding.UTF8.GetBytes(context.Request.Headers["X-Api-Key"].ToString()));
-        if (!CryptographicOperations.FixedTimeEquals(supplied, keyHash))
+        var identity = credentials.Authenticate(context.Request.Headers["X-Api-Key"].ToString());
+        if (identity is null)
         {
             await Problem(context, 401, "Credencial inválida.");
             return;
         }
+        context.Items["ServiceId"] = identity;
         try { await next(context); }
         catch (BadHttpRequestException ex)
         {

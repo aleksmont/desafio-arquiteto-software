@@ -22,7 +22,7 @@ A prioridade adotada é integridade financeira, seguida de comportamento previs�
 
 ## Premissas e pontos a esclarecer com o negócio
 
-A solução assume BRL, precisão de centavos, uma conta por cliente e ausência de saldo negativo. O identificador de conta é recebido de um consumidor interno; cadastro, titularidade e autorização por cliente não estão implementados. Esses pontos são simplificações do projeto e precisam de confirmação em um contexto real.
+A solução assume BRL, precisão de centavos, uma conta por cliente e ausência de saldo negativo. O identificador de conta é recebido de um consumidor interno; a propriedade da conta é vinculada ao serviço, mas cadastro e titularidade de pessoas físicas não estão implementados. Esses pontos são simplificações do projeto e precisam de confirmação em um contexto real.
 
 A expressão “saldo em determinado momento” exige uma definição de negócio. Aqui, o histórico usa a data de registro atribuída pelo banco e considera somente movimentos confirmados e visíveis à consulta. Não representa data econômica, lançamentos retroativos nem uma reconstrução exata da visibilidade no instante do commit. Um registro ainda não confirmado pode aparecer depois em uma nova consulta para o mesmo instante histórico.
 
@@ -189,7 +189,7 @@ O projeto combina validação de entrada, SQL parametrizado, limite de corpo, cr
 
 A motivação é reduzir o impacto de um defeito ou comprometimento da aplicação. Ainda assim, o runtime precisa atualizar saldo e pode fazê-lo diretamente; as permissões não garantem, isoladamente, que toda atualização corresponda a um movimento. A atomicidade do fluxo e a reconciliação continuam necessárias.
 
-A chave compartilhada é um mecanismo de demonstração para consumidor interno. Ela não distingue titulares, não autoriza por conta e não fornece rotação gerenciada. Antes de exposição real, é necessário definir identidade por serviço, autorização, TLS, gestão de segredos, auditoria de acesso e retenção de dados. O identificador UUID não é uma credencial.
+A credencial identifica um serviço e autoriza acesso apenas às contas vinculadas a ele. Essa proteção não distingue titulares finais nem fornece rotação gerenciada. Antes de exposição real, é necessário definir identidade por serviço, autorização, TLS, gestão de segredos, auditoria de acesso e retenção de dados. O identificador UUID não é uma credencial.
 
 A aplicação evita registrar corpo, credenciais e conteúdo SQL nos erros tratados de persistência. Relatórios de reconciliação contêm valores e identificadores financeiros e precisam de acesso restrito. A avaliação de segurança deve incluir também logs de infraestrutura e procedimentos de operação.
 
@@ -199,7 +199,7 @@ A suíte usa PostgreSQL real porque mocks não reproduzem locks, constraints, pe
 
 O comando `bash scripts/test.sh` prepara dependências, banco temporário e migrações, compila e executa a suíte, devolvendo seu resultado e limpando o ambiente. O CI usa o mesmo caminho. Essa escolha reduz o trabalho manual de quem avalia e a diferença entre ambientes, ao custo de exigir Docker e downloads na primeira execução.
 
-Os testes são evidência dos cenários executados. Não demonstram vazão de produção, recuperação após desastre ou ausência de todas as condições de corrida. Ainda faltam simulações de perda de conexão durante commit, failover, restauração e carga sustentada.
+Os testes são evidência dos cenários executados. Não demonstram vazão de produção, recuperação após desastre ou ausência de todas as condições de corrida. Os testes agora cortam a conexão antes do COMMIT e após a confirmação do banco. Ainda faltam failover, restauração e carga sustentada; o ensaio de carga atual é composto por lotes finitos.
 
 ## Como decidir as próximas evoluções
 
@@ -219,3 +219,7 @@ Antes de produção, priorizaria identidade e autorização, gestão de migraç�
 A proposta é adequada ao desafio se o avaliador conseguir compreender a fronteira de consistência, reproduzir os testes e identificar tanto as garantias quanto os custos. Cada evolução deve preservar as invariantes financeiras ou declarar claramente uma nova semântica de negócio.
 
 O compromisso arquitetural é manter as decisões proporcionais ao problema e revisáveis por evidência. A simplicidade atual é uma escolha com limites explícitos; a evolução deve responder a necessidades medidas, sem perder a capacidade de explicar como o dinheiro é registrado e protegido.
+
+## Evidência após a revisão
+
+A [validação da revisão](validation-results.md) documenta a autorização de contas por serviço, os cortes reais de conexão no COMMIT e três perfis de carga HTTP. Os resultados locais mostram o custo da conta concentradora e a recuperação de recusas 429. São ensaios finitos, sem garantia de capacidade sustentada ou de recuperação de desastre.

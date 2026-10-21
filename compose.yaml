@@ -12,6 +12,7 @@ services:
       - ./src/Ledger.Api/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
       - ./database/migrations/002-protect-journal.sql:/docker-entrypoint-initdb.d/002-protect-journal.sql:ro
       - ./database/migrations/003-runtime-permissions.sql:/docker-entrypoint-initdb.d/003-runtime-permissions.sql:ro
+      - ./database/migrations/005-account-ownership.sql:/docker-entrypoint-initdb.d/005-account-ownership.sql:ro
       - ./database/004-configure-runtime.sh:/docker-entrypoint-initdb.d/004-configure-runtime.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
