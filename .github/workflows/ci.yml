@@ -5,31 +5,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: ledger
-          POSTGRES_PASSWORD: test-only
-          POSTGRES_DB: ledger_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U ledger -d ledger_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      TEST_DATABASE: Host=localhost;Database=ledger_test;Username=ledger;Password=test-only
-      PGPASSWORD: test-only
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - run: psql -h localhost -U ledger -d ledger_test -f src/Ledger.Api/schema.sql
-      - run: psql -v ON_ERROR_STOP=1 -h localhost -U ledger -d ledger_test -f database/migrations/002-protect-journal.sql
-      - run: psql -v ON_ERROR_STOP=1 -h localhost -U ledger -d ledger_test -f database/migrations/003-runtime-permissions.sql
-      - run: dotnet restore
-      - run: dotnet build -c Release --no-restore
-      - run: dotnet test -c Release --no-build
+      - run: bash scripts/test.sh
   containers:
     runs-on: ubuntu-latest
     env:

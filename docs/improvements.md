@@ -18,10 +18,9 @@ A revisão mantém uma aplicação e PostgreSQL. O foco é tornar as garantias v
 
 ## Como reproduzir a validação
 
-1. Preparar banco exclusivo de teste com `schema.sql` e `database/migrations/002-protect-journal.sql`.
-2. Configurar `TEST_DATABASE` e executar os comandos de restore/build/test do README.
-3. Executar o smoke test com a API iniciada; ele cria uma conta exclusiva e verifica crédito e repetição sem duplicidade.
-4. Para volumes já existentes, aplicar a migração antes de publicar a nova versão da API.
+Com Docker em execução, executar `bash scripts/test.sh` na raiz do repositório. O script prepara o banco isolado, aplica schema e migrações, compila e executa a suíte; ao terminar, remove o ambiente temporário. Não requer `.env` ou SDK instalado. O CI usa o mesmo comando.
+
+Para testar a API em um servidor HTTP real, iniciar a aplicação pelo README e usar o smoke test opcional. A execução manual com SDK continua disponível no [guia de desenvolvimento](development.md).
 
 O teste de proteção SQL exige credencial com permissão suficiente para alcançar o trigger, e o teste de rollback cria uma constraint temporária restrita à conta exclusiva do teste, removida no finally. Por isso os testes devem usar um banco dedicado, nunca o banco de produção.
 
@@ -36,3 +35,7 @@ Referências da implementação: [testes de integração ASP.NET Core](https://l
 A migração 003 e o provisionamento 004 separam o login usado pela API do administrador. Isso reduz o impacto de uma falha na aplicação: os testes comprovam que o runtime opera créditos/débitos, mas não apaga registros, altera schema ou desativa o trigger. A proteção não impede o runtime de atualizar saldo diretamente; por isso a reconciliação adicionada compara a projeção com o diário sem corrigir dados.
 
 Também foram acrescentados contrato JSON estrito, limite de corpo no Kestrel e teste de cancelamento em espera de lock. O objetivo é rejeitar requisições ambíguas e comprovar que uma operação cancelada antes da gravação pode ser repetida com a mesma chave. Não há garantia de cancelamento de operações já confirmadas. O guia de [operação](operations.md) detalha configuração, atualizações e tratamento de divergências.
+
+## Execução local simplificada
+
+A preparação manual do banco saiu do caminho principal. `compose.test.yaml` e `Dockerfile.test` descrevem as dependências da suíte; `scripts/test.sh` coordena execução e limpeza, preservando o código de erro. Nomes de projeto exclusivos e ausência de portas do host permitem rodar os testes sem conflitar com o banco da aplicação. Os passos detalhados ficam opcionais para desenvolvimento com IDE. O custo é depender de Docker e baixar imagens na primeira execução.

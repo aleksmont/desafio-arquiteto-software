@@ -2,6 +2,73 @@
 
 API em C#/.NET 10 e PostgreSQL para registrar créditos e débitos e consultar saldo atual ou histórico. Implementação inicial de uma única aplicação, com diário financeiro e saldo materializado atualizados na mesma transação.
 
+## Testar em um comando
+
+Pré-requisito: Docker com Compose em execução (por exemplo, Docker Desktop). No Windows, execute o comando no Git Bash ou WSL.
+
+Na pasta do repositório:
+
+```sh
+bash scripts/test.sh
+```
+
+O comando prepara PostgreSQL e .NET em contêineres, aplica o schema e as migrações, compila sem warnings e executa todos os testes. Não precisa de `.env`, SDK, cliente PostgreSQL ou banco instalado. O banco é temporário, sem portas expostas, e não usa os dados da aplicação. Ao terminar, o ambiente é removido automaticamente; imagens ficam em cache para acelerar a próxima execução.
+
+O resultado esperado é `Passed!` com os 33 testes aprovados. Em caso de falha, os detalhes aparecem no terminal e o comando retorna erro. A primeira execução demora mais por causa dos downloads. Execute novamente o mesmo comando para repetir os testes com um banco novo. O GitHub Actions usa esse mesmo caminho.
+
+Se aparecer que Docker não está disponível, abra o Docker Desktop e aguarde a inicialização. Se o download das imagens ou pacotes falhar, verifique a conexão e execute novamente.
+
+## Rodar a API localmente
+
+```sh
+cp .env.example .env
+docker compose up --build -d
+```
+
+A API fica em `http://localhost:8080`. As credenciais do exemplo são exclusivas de desenvolvimento. Os dados da aplicação persistem em volume e ficam separados dos testes. Para parar sem apagar os dados:
+
+```sh
+docker compose down
+```
+
+Para instalações que já têm volume antigo, siga [atualização do banco](docs/operations.md#atualizar-volumes-existentes). Não é necessário aplicar SQL manualmente em uma instalação nova.
+
+## Premissas
+
+- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos. A API recebe o identificador da conta; não há cadastro de clientes nem vínculo de titularidade persistido.
+- Sem cheque especial: débitos que excedam o saldo retornam 409.
+- O histórico representa o instante de registro (`recordedAt`, UTC), inclusive no limite `at`. Não há lançamentos retroativos ou futuros. A posição considera os registros já confirmados visíveis na consulta; não é uma reconstrução do instante exato de commit.
+- Contas novas começam em zero. Conta inexistente retorna 404.
+- Correções financeiras devem ser novos lançamentos compensatórios; não há edição ou remoção de movimentos.
+- O consumidor é um serviço interno confiável. A chave compartilhada desta demonstração não implementa autorização por cliente.
+
+## Experimentar a API
+
+Com a aplicação iniciada e as credenciais padrão do `.env.example`:
+
+```sh
+export API_KEY=local-development-key-change-me-123456
+export ACCOUNT=11111111-1111-1111-1111-111111111111
+curl -i -X PUT "http://localhost:8080/accounts/$ACCOUNT" -H "X-Api-Key: $API_KEY"
+curl -i -X POST "http://localhost:8080/accounts/$ACCOUNT/movements" \
+  -H "X-Api-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"key":"deposit-001","amount":100.50,"type":"credit"}'
+curl "http://localhost:8080/accounts/$ACCOUNT/balance" -H "X-Api-Key: $API_KEY"
+curl "http://localhost:8080/accounts/$ACCOUNT/balance?at=2026-10-19T23:00:00Z" -H "X-Api-Key: $API_KEY"
+```
+
+Use `type: debit` para debitar. Reenvie o mesmo corpo e chave após timeout: o primeiro registro retorna 201 e repetições retornam 200 com o mesmo movimento. Chave reutilizada com valor ou tipo diferente retorna 409. A chave é única por conta e deve identificar uma intenção de negócio, sem dados pessoais. Valores e tipos inválidos retornam 400; credencial ausente/inválida, 401; falha transitória de persistência, 503; erro SQL permanente, 500; capacidade simultânea excedida, 429. Datas no parâmetro `at` devem incluir `Z` ou offset (codifique `+` como `%2B`).
+
+`GET /health/live` verifica o processo sem autenticação. `GET /health/ready` exige chave e verifica acesso à tabela de contas. A API não cria tabelas ao iniciar.
+
+## Desenvolver usando o SDK (opcional)
+
+Para quem precisa depurar ou executar testes fora dos contêineres, os passos detalhados estão no [guia de desenvolvimento](docs/development.md). Para apenas avaliar a solução, use o comando de testes acima.
+
+## Escopo da entrega
+
+Inclui API, persistência transacional, testes automatizados, execução em contêiner, usuário de runtime restrito, reconciliação somente de leitura e integração contínua. É uma demonstração do núcleo de consistência; a preparação para operação bancária exige identidade por serviço, autorização, controles operacionais e validação de carga descritos na documentação. As credenciais do Compose servem somente ao desenvolvimento local.
+
 ## Entenda a solução
 
 O problema central é preservar a relação entre o que aconteceu na conta e o saldo apresentado ao cliente, inclusive quando duas requisições chegam juntas ou uma resposta se perde. A implementação prioriza esse núcleo antes de adicionar serviços ou infraestrutura distribuída.
@@ -22,89 +89,6 @@ Exemplo: após um crédito de R$ 100,50 e um débito de R$ 30,25, o saldo atual 
 
 Esta entrega usa uma aplicação com responsabilidades separadas em arquivos, sem impor várias camadas ou projetos a um domínio ainda pequeno. `Store` concentra a transação e o SQL; essa escolha reduz indireção, mas pode exigir separação de regras e persistência quando o domínio crescer.
 
-## Premissas
+## Operação avançada
 
-- Uma conta por cliente, identificada por UUID, moeda BRL, precisão de centavos. A API recebe o identificador da conta; não há cadastro de clientes nem vínculo de titularidade persistido.
-- Sem cheque especial: débitos que excedam o saldo retornam 409.
-- O histórico representa o instante de registro (`recordedAt`, UTC), inclusive no limite `at`. Não há lançamentos retroativos ou futuros. A posição considera os registros já confirmados visíveis na consulta; não é uma reconstrução do instante exato de commit.
-- Contas novas começam em zero. Conta inexistente retorna 404.
-- Correções financeiras devem ser novos lançamentos compensatórios; não há edição ou remoção de movimentos.
-- O consumidor é um serviço interno confiável. A chave compartilhada desta demonstração não implementa autorização por cliente.
-
-## Rodar com Docker
-
-Pré-requisitos: Docker com Compose. Não é necessário instalar o SDK no host.
-
-```sh
-cp .env.example .env
-docker compose up --build -d
-```
-
-A API fica em `http://localhost:8080`. O banco persiste em volume; o schema e a proteção do diário são aplicados no primeiro início de um volume vazio. Alterações futuras exigem migrações versionadas; reiniciar um volume existente não reaplica o script.
-
-```sh
-export API_KEY=local-development-key-change-me-123456
-export ACCOUNT=11111111-1111-1111-1111-111111111111
-curl -i -X PUT "http://localhost:8080/accounts/$ACCOUNT" -H "X-Api-Key: $API_KEY"
-curl -i -X POST "http://localhost:8080/accounts/$ACCOUNT/movements" \
-  -H "X-Api-Key: $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"key":"deposit-001","amount":100.50,"type":"credit"}'
-curl "http://localhost:8080/accounts/$ACCOUNT/balance" -H "X-Api-Key: $API_KEY"
-curl "http://localhost:8080/accounts/$ACCOUNT/balance?at=2026-10-19T23:00:00Z" -H "X-Api-Key: $API_KEY"
-```
-
-Use `type: debit` para debitar. Reenvie o mesmo corpo e chave após timeout: o primeiro registro retorna 201 e repetições retornam 200 com o mesmo movimento. Chave reutilizada com valor ou tipo diferente retorna 409. A chave é única por conta e deve identificar uma intenção de negócio, sem dados pessoais. Valores e tipos inválidos retornam 400; credencial ausente/inválida, 401; falha transitória de persistência, 503; erro SQL permanente, 500; capacidade simultânea excedida, 429. Datas no parâmetro `at` devem incluir `Z` ou offset (codifique `+` como `%2B`).
-
-`GET /health/live` verifica o processo sem autenticação. `GET /health/ready` exige chave e verifica acesso à tabela de contas. A API não cria tabelas ao iniciar.
-
-## Desenvolvimento e testes
-
-Pré-requisitos: SDK .NET 10, PostgreSQL 18 (ou o serviço `db` do Compose), cliente `psql`. Crie um banco exclusivo para testes para não escrever dados de teste no banco da aplicação.
-
-```sh
-docker compose up -d db
-docker compose exec db createdb -U ledger ledger_test
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < src/Ledger.Api/schema.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < database/migrations/002-protect-journal.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger_test < database/migrations/003-runtime-permissions.sql
-export TEST_DATABASE='Host=localhost;Database=ledger_test;Username=ledger;Password=local-only'
-dotnet restore
-dotnet build -c Release --no-restore
-dotnet test -c Release --no-build
-```
-
-Os testes de integração exigem `TEST_DATABASE` e falham se a configuração faltar. Usam UUIDs exclusivos, não removem dados e verificam duplicatas concorrentes, débitos concorrentes, saldo histórico, conflito de chave e rollback de débito recusado. Recrie periodicamente o banco de testes.
-
-Para executar a API com o SDK:
-
-```sh
-export ConnectionStrings__Ledger='Host=localhost;Database=ledger;Username=ledger_app;Password=local-runtime-password-change-me;Timeout=5;Command Timeout=10'
-export ApiKey=local-development-key-change-me-123456
-dotnet run --project src/Ledger.Api --urls http://localhost:8080
-```
-
-`dotnet build` trata warnings como erros. O workflow do GitHub aplica o schema a um PostgreSQL real e executa build e testes. Consulte [decisões e operação](docs/architecture.md).
-
-## Escopo da entrega
-
-Inclui API, persistência transacional, testes automatizados, execução em contêiner, usuário de runtime restrito, reconciliação somente de leitura e integração contínua. É uma demonstração do núcleo de consistência; a preparação para operação bancária exige identidade por serviço, autorização, controles operacionais e validação de carga descritos na documentação. As credenciais do Compose servem somente ao desenvolvimento local.
-
-## Atualizar uma instalação existente
-
-Configure também `LEDGER_APP_PASSWORD` no `.env`; a API do Compose utiliza o login restrito `ledger_app`. Volumes existentes não executam novamente os scripts de inicialização. Antes de subir a API atualizada, aplique a migração com o papel administrador/migrador (faça backup em ambientes com dados relevantes):
-
-```sh
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger < database/migrations/002-protect-journal.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ledger -d ledger < database/migrations/003-runtime-permissions.sql
-docker compose exec -T db bash /docker-entrypoint-initdb.d/004-configure-runtime.sh
-```
-
-O arquivo é transacional e reaplicável. Ele bloqueia UPDATE, DELETE e TRUNCATE do diário; um administrador ainda pode remover essa proteção. Não substitui papéis de acesso restritos.
-
-## Proteção de capacidade e smoke test
-
-`MaxConcurrentRequests` configura o limite de operações de contas em execução por instância (padrão 32, sem fila). Requisições excedentes recebem 429 com `Retry-After: 1`. Esse valor é um ponto de partida a medir, não promessa de capacidade. Health checks ficam fora desse limite. Operações de movimentação usam espera de lock de até 3 segundos, timeout padrão de comando de 10 segundos e de conexão de 5 segundos; os dois últimos podem ser configurados na conexão.
-
-Com a API em execução, `API_KEY=... bash scripts/smoke.sh` verifica criação de conta, crédito, repetição e saldo por HTTP. Requer curl e Python 3; grava uma conta exclusiva no banco de destino. O CI também inicia o Compose em um job próprio e executa esse fluxo, encerrando os contêineres ao terminar.
-
-Consulte [operação e permissões](docs/operations.md) para atualizar volumes, rotacionar a senha de desenvolvimento e executar `scripts/reconcile.sh`. O script detecta diferenças entre saldo e diário e não faz correção automática.
+Consulte [operação e permissões](docs/operations.md) para atualizar volumes existentes, executar a reconciliação e entender limites de capacidade. O [guia de desenvolvimento](docs/development.md) descreve a execução manual e o teste HTTP completo.

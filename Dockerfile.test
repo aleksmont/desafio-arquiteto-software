@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+WORKDIR /source
+COPY Directory.Build.props Ledger.slnx ./
+COPY src/Ledger.Api/Ledger.Api.csproj src/Ledger.Api/
+COPY tests/Ledger.Tests/Ledger.Tests.csproj tests/Ledger.Tests/
+RUN dotnet restore
+COPY src/ src/
+COPY tests/ tests/
+COPY database/ database/
+RUN dotnet build -c Release --no-restore
+ENTRYPOINT ["dotnet", "test", "-c", "Release", "--no-build", "--no-restore"]

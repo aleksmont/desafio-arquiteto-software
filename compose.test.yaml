@@ -1,0 +1,29 @@
+# Independente do compose da aplicação: sem .env, portas do host ou dados persistentes.
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ledger_test
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: test-only
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./src/Ledger.Api/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./database/migrations/002-protect-journal.sql:/docker-entrypoint-initdb.d/002-protect-journal.sql:ro
+      - ./database/migrations/003-runtime-permissions.sql:/docker-entrypoint-initdb.d/003-runtime-permissions.sql:ro
+    healthcheck:
+      # TCP evita considerar pronto o servidor temporário usado na inicialização.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ledger -d ledger_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      TEST_DATABASE: Host=db;Database=ledger_test;Username=ledger;Password=test-only
+    depends_on:
+      db:
+        condition: service_healthy

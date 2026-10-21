@@ -25,11 +25,11 @@ Os caminhos da tabela são relativos à raiz do repositório. Os testes ficam em
 | Requisito | Entrega | Como conferir |
 | --- | --- | --- |
 | C# | API ASP.NET Core e testes em C# | `src/Ledger.Api` e `tests/Ledger.Tests` |
-| Testes automatizados | xUnit com validações e PostgreSQL real | `dotnet test -c Release --no-build`, após preparar o banco |
+| Testes automatizados | xUnit com validações e PostgreSQL real | `bash scripts/test.sh`, sem preparação manual de banco |
 | GitHub público | [Repositório do desafio](https://github.com/aleksmont/desafio-arquiteto-software) | Visibilidade pública confirmada na publicação inicial; configuração externa ao código |
 | Execução local documentada | Instruções com Docker e SDK | README e arquivos `compose.yaml`, `Dockerfile`, `.env.example` |
 | Documentação no repositório | README e diretório `docs` | Nenhum documento externo é necessário para compreender a proposta |
-| Compilar sem erros e warnings | `TreatWarningsAsErrors` em `Directory.Build.props` | `dotnet build -c Release --no-restore`; o CI executa o mesmo comando |
+| Compilar sem erros e warnings | `TreatWarningsAsErrors` em `Directory.Build.props` | `bash scripts/test.sh` compila antes dos testes; o CI usa esse mesmo script |
 
 ## Premissas que precisam de validação com o negócio
 
