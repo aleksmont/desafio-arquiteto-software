@@ -16,6 +16,8 @@ O comando prepara PostgreSQL e .NET em contêineres, aplica o schema e as migra�
 
 O resultado esperado é `Passed!` com os 33 testes aprovados. Em caso de falha, os detalhes aparecem no terminal e o comando retorna erro. A primeira execução demora mais por causa dos downloads. Execute novamente o mesmo comando para repetir os testes com um banco novo. O GitHub Actions usa esse mesmo caminho.
 
+O [passo a passo do script](docs/development.md#como-funciona-o-comando-de-testes) explica o que cada etapa faz e por que existe.
+
 Se aparecer que Docker não está disponível, abra o Docker Desktop e aguarde a inicialização. Se o download das imagens ou pacotes falhar, verifique a conexão e execute novamente.
 
 ## Rodar a API localmente
