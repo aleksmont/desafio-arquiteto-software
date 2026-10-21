@@ -63,6 +63,20 @@ Os percentis incluem todos os status da janela medida. “Respostas HTTP/s” in
 
 Esses números mostram o custo da disputa por uma conta nesta execução: com os mesmos 16 trabalhadores, a conta concentradora teve menor vazão e p95 maior. O terceiro cenário mostrou admissão limitada com recuperação das recusas. Isso não estabelece a capacidade máxima do sistema.
 
+## Resultado reproduzido em Docker no CI
+
+O [workflow 39600602653](https://github.com/aleksmont/desafio-arquiteto-software/actions/runs/39600602653), do commit `f0843f7`, passou nos três jobs. O comando único de testes executou 36 casos sem falhas, a compilação registrou zero erros/warnings e o smoke test validou o histórico no instante retornado pela operação.
+
+O ensaio iniciou às 12:34:25 UTC de 21/10/2026. O gerador observou Linux x86_64 e 4 CPUs lógicas. API, PostgreSQL 18 e gerador rodaram em contêineres no mesmo runner; o banco era novo e descartável. Hardware e recursos do runner não são equivalentes ao ambiente local. [Relatório bruto do CI](results/load-ci.json).
+
+| Cenário | Duração medida | HTTP 201 / 429 / 503 | Respostas HTTP/s | Novos movimentos/s | p50 / p95 / p99 (ms) |
+| --- | --- | --- | --- | --- | --- |
+| Distribuído, 32 contas / 16 trabalhadores | 4,012 s | 6000 / 0 / 0 | 1495,54 | 1495,54 | 9,991 / 16,663 / 21,862 |
+| Conta concentradora, 1 conta / 16 trabalhadores | 5,433 s | 6000 / 0 / 0 | 1104,42 | 1104,42 | 10,617 / 38,926 / 57,833 |
+| Concorrência oferecida acima do limite, 32 contas / 96 trabalhadores | 3,545 s | 5155 / 845 / 0 | 1692,73 | 1454,34 | 51,962 / 100,214 / 127,187 |
+
+As 845 intenções recusadas foram recuperadas fora da janela medida. Os três cenários terminaram com saldo atual e histórico conferidos e R$ 60,00 por cenário. A diferença em relação ao host local reforça que as taxas não devem ser adotadas como capacidade contratada. Os arquivos JSON desta documentação preservam essas execuções; novas execuções produzem novos valores em `artifacts/load/load.json`.
+
 ## Limitações e próximos experimentos
 
 - São lotes curtos, com uma execução final por perfil, sem intervalo de confiança, ensaio de horas ou busca do ponto de saturação. Não há alegação de carga sustentada.

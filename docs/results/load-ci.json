@@ -1,0 +1,71 @@
+{
+  "executed_at_utc": "2026-10-21T12:34:25.376904+00:00",
+  "generator": "Python urllib / HTTP real / novas conex\u00f5es por requisi\u00e7\u00e3o",
+  "generator_platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.41",
+  "logical_cpus_visible": 4,
+  "admission_limit_per_api_instance": 32,
+  "measurement": "Lote finito fechado; sem warm-up expl\u00edcito; recupera\u00e7\u00e3o fora da medi\u00e7\u00e3o",
+  "scenarios": [
+    {
+      "name": "distributed",
+      "accounts": 32,
+      "workers": 16,
+      "requests": 6000,
+      "duration_seconds": 4.012,
+      "http_responses_per_second": 1495.54,
+      "created_per_second": 1495.54,
+      "statuses": {
+        "201": 6000
+      },
+      "latency_ms_all_statuses": {
+        "p50": 9.991,
+        "p95": 16.663,
+        "p99": 21.862
+      },
+      "recovered_intentions": 0,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    },
+    {
+      "name": "hot-account",
+      "accounts": 1,
+      "workers": 16,
+      "requests": 6000,
+      "duration_seconds": 5.433,
+      "http_responses_per_second": 1104.42,
+      "created_per_second": 1104.42,
+      "statuses": {
+        "201": 6000
+      },
+      "latency_ms_all_statuses": {
+        "p50": 10.617,
+        "p95": 38.926,
+        "p99": 57.833
+      },
+      "recovered_intentions": 0,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    },
+    {
+      "name": "over-admission-limit",
+      "accounts": 32,
+      "workers": 96,
+      "requests": 6000,
+      "duration_seconds": 3.545,
+      "http_responses_per_second": 1692.73,
+      "created_per_second": 1454.34,
+      "statuses": {
+        "201": 5155,
+        "429": 845
+      },
+      "latency_ms_all_statuses": {
+        "p50": 51.962,
+        "p95": 100.214,
+        "p99": 127.187
+      },
+      "recovered_intentions": 845,
+      "balance_and_history_validated": true,
+      "expected_total_brl_after_recovery": "60"
+    }
+  ]
+}
